@@ -1,0 +1,26 @@
+{
+  "name": "smp-shop-management-platform",
+  "version": "1.0.0",
+  "description": "SMP (Shop Management Platform) - Scalable E-Commerce & Multi-Shop Management System",
+  "scripts": {
+    "dev": "node dev.js",
+    "start": "node dev.js",
+    "server": "npm --prefix backend start",
+    "client": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "seed": "npm --prefix backend run seed",
+    "test:e2e": "npm --prefix backend run test:e2e",
+    "test:load": "npm --prefix backend run test:load",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install"
+  },
+  "keywords": [
+    "ecommerce",
+    "pos",
+    "retail",
+    "multi-shop",
+    "dress-shop",
+    "management"
+  ],
+  "author": "SMP Team",
+  "license": "ISC"
+}
