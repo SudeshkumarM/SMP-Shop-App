@@ -50,10 +50,19 @@ const Sidebar = ({ module }) => {
         { to: '/owner/shops', icon: 'bi-shop-window', label: 'Store Management' },
         { to: '/owner/branches', icon: 'bi-building', label: 'Branches' },
         { to: '/owner/admins', icon: 'bi-shield-shaded', label: 'Admin Accounts' },
+        { to: '/owner/staff', icon: 'bi-person-workspace', label: 'Staff Management' },
+        { to: '/owner/customers', icon: 'bi-people-fill', label: 'Customer Management' },
+        { to: '/owner/products', icon: 'bi-tags-fill', label: 'Product Management' },
+        { to: '/owner/inventory', icon: 'bi-boxes', label: 'Inventory & Stock' },
+        { to: '/owner/categories', icon: 'bi-grid-fill', label: 'Categories' },
         { to: '/owner/billing', icon: 'bi-receipt', label: 'Billing Oversight' },
+        { to: '/owner/orders', icon: 'bi-cart-check-fill', label: 'Order Management' },
+        { to: '/owner/delivery-settings', icon: 'bi-truck', label: 'Delivery Settings' },
+        { to: '/owner/gst-settings', icon: 'bi-file-earmark-ruled', label: 'GST Settings' },
+        { to: '/owner/offers', icon: 'bi-whatsapp', label: 'Offers & WhatsApp' },
         { to: '/owner/investments', icon: 'bi-bank', label: 'Investments' },
         { to: '/owner/expenses', icon: 'bi-cash-coin', label: 'Operating Expenses' },
-        { to: '/owner/profits', icon: 'bi-currency-rupee', label: 'Profit & Loss (P&L)', badge: 'Financial' },
+        { to: '/owner/profits', icon: 'bi-currency-rupee', label: 'Profit & Loss (P&L)', badge: 'P&L' },
         { to: '/owner/reports', icon: 'bi-file-earmark-bar-graph-fill', label: 'Master Reports' },
         { to: '/owner/settings', icon: 'bi-sliders', label: 'Master Settings' },
         { to: '/owner/help', icon: 'bi-question-diamond-fill', label: 'Owner Help Manual' }
@@ -74,24 +83,44 @@ const Sidebar = ({ module }) => {
   const links = getLinks();
 
   const getModuleBadgeColor = () => {
-    if (module === 'owner') return 'bg-purple text-white';
-    if (module === 'admin') return 'bg-warning text-dark';
-    if (module === 'staff') return 'bg-success text-white';
-    return 'bg-primary text-white';
+    if (module === 'owner') return 'var(--smp-accent-red)';
+    if (module === 'admin') return 'var(--smp-accent-blue)';
+    if (module === 'staff') return '#059669';
+    return 'var(--smp-accent-blue)';
   };
 
   return (
-    <aside className="d-flex flex-column flex-shrink-0 p-3 bg-white border-end shadow-sm" style={{ width: '260px', minHeight: 'calc(100vh - 64px)' }}>
+    <aside
+      className="d-flex flex-column flex-shrink-0 p-3 shadow-sm"
+      style={{
+        width: '260px',
+        minHeight: 'calc(100vh - 64px)',
+        backgroundColor: 'var(--smp-bg-primary)',
+        borderRight: '1px solid var(--smp-border)'
+      }}
+    >
       {/* User greeting */}
-      <div className="d-flex align-items-center gap-2 p-2 mb-3 bg-light rounded-3">
-        <div className="bg-primary text-white rounded-circle p-2 d-flex align-items-center justify-content-center" style={{ width: '36px', height: '36px' }}>
+      <div
+        className="d-flex align-items-center gap-2 p-2 mb-3 rounded-3"
+        style={{
+          backgroundColor: 'var(--smp-bg-secondary)',
+          border: '1px solid var(--smp-border)'
+        }}
+      >
+        <div
+          className="text-white rounded-circle p-2 d-flex align-items-center justify-content-center"
+          style={{ width: '36px', height: '36px', backgroundColor: getModuleBadgeColor() }}
+        >
           <i className="bi bi-person-fill"></i>
         </div>
         <div className="overflow-hidden">
-          <div className="fw-bold text-dark text-truncate" style={{ fontSize: '0.9rem' }}>
+          <div className="fw-bold text-white text-truncate" style={{ fontSize: '0.9rem' }}>
             {user?.name || 'Authorized User'}
           </div>
-          <span className={`badge ${getModuleBadgeColor()} text-uppercase px-2 py-1`} style={{ fontSize: '0.65rem' }}>
+          <span
+            className="badge text-uppercase px-2 py-1 text-white"
+            style={{ fontSize: '0.65rem', backgroundColor: getModuleBadgeColor() }}
+          >
             {module} Portal
           </span>
         </div>
@@ -105,16 +134,28 @@ const Sidebar = ({ module }) => {
               to={link.to}
               className={({ isActive }) =>
                 `nav-link d-flex align-items-center justify-content-between py-2 px-3 rounded-2 fw-medium ${
-                  isActive ? 'active bg-primary text-white shadow-sm' : 'text-secondary hover-bg-light'
+                  isActive ? 'active shadow-sm' : ''
                 }`
               }
+              style={({ isActive }) => ({
+                backgroundColor: isActive ? 'var(--smp-accent-blue)' : 'transparent',
+                color: isActive ? '#FFFFFF' : 'var(--smp-text-secondary)',
+                fontSize: '0.875rem'
+              })}
             >
               <div className="d-flex align-items-center gap-2">
                 <i className={`bi ${link.icon} fs-6`}></i>
-                <span style={{ fontSize: '0.875rem' }}>{link.label}</span>
+                <span>{link.label}</span>
               </div>
               {link.badge && (
-                <span className="badge bg-danger rounded-pill" style={{ fontSize: '0.65rem' }}>
+                <span
+                  className="badge rounded-pill"
+                  style={{
+                    fontSize: '0.65rem',
+                    backgroundColor: 'var(--smp-accent-red)',
+                    color: '#FFFFFF'
+                  }}
+                >
                   {link.badge}
                 </span>
               )}
@@ -123,13 +164,13 @@ const Sidebar = ({ module }) => {
         ))}
       </ul>
 
-      <hr className="my-3 text-muted opacity-25" />
+      <hr className="my-3" style={{ borderColor: 'var(--smp-border)' }} />
 
       {/* Logout button */}
       <div>
         <button
           onClick={handleLogout}
-          className="btn btn-outline-danger w-100 d-flex align-items-center justify-content-center gap-2 py-2 rounded-2"
+          className="btn btn-danger w-100 d-flex align-items-center justify-content-center gap-2 py-2 rounded-2"
           style={{ fontSize: '0.85rem' }}
         >
           <i className="bi bi-box-arrow-right"></i>

@@ -167,7 +167,7 @@ const Cart = () => {
 
             <button
               onClick={handleCheckout}
-              className="btn btn-warning btn-lg w-100 rounded-pill fw-bold shadow-sm py-3 text-uppercase tracking-wider"
+              className="btn btn-primary btn-lg w-100 rounded-pill fw-bold shadow-sm py-3 text-uppercase tracking-wider"
             >
               Proceed to Checkout
             </button>

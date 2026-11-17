@@ -8,6 +8,7 @@ const Shop = require('../models/Shop');
 const User = require('../models/User');
 const WhatsAppService = require('../services/whatsappService');
 const { generateInvoiceBarcode } = require('../utils/generateBarcode');
+const { emitRealtimeUpdate } = require('../utils/realtime');
 
 const generateInvoiceNumber = async (shopPrefix = 'SMP') => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -273,30 +274,9 @@ const createBillingTransaction = async (req, res) => {
       await customer.save();
     }
 
-    // Optional WhatsApp Invoice Notification
-    if (customerPhone && (sendWhatsAppInvoice || (shop && shop.settings && shop.settings.whatsappSettings && shop.settings.whatsappSettings.notifyOnInvoice))) {
-      try {
-        await WhatsAppService.sendMessage({
-          phone: customerPhone,
-          customerName: customerName || (customer ? customer.fullName : 'Customer'),
-          customerId: customer ? customer._id : null,
-          messageType: 'INVOICE',
-          templateName: 'invoice_confirmation',
-          content: WhatsAppService.buildInvoiceMessage({
-            customerName: customerName || (customer ? customer.fullName : 'Customer'),
-            invoiceNumber,
-            grandTotal,
-            itemCount: billItems.reduce((acc, i) => acc + i.quantity, 0),
-            paymentMethod
-          }),
-          shopId: shop ? shop._id : null,
-          sentBy: req.user._id,
-          requiresConsent: false
-        });
-      } catch (wErr) {
-        console.error('[WhatsApp POS Bill Error]', wErr.message);
-      }
-    }
+    // Emit real-time inventory & billing update across all clients
+    emitRealtimeUpdate(req.app, 'inventory:updated', { billItems, invoiceNumber });
+    emitRealtimeUpdate(req.app, 'bill:created', { invoice });
 
     res.status(201).json({
       success: true,

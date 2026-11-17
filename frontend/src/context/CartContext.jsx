@@ -55,9 +55,10 @@ export const CartProvider = ({ children }) => {
     handleLoginCart();
   }, [isAuthenticated, user, fetchCart]);
 
-  const addToCart = async (productId, size = 'Standard', colour = 'Default', quantity = 1) => {
+  const addToCart = async (productOrId, size = 'Standard', colour = 'Default', quantity = 1) => {
     setLoading(true);
     try {
+      const productId = typeof productOrId === 'object' && productOrId !== null ? productOrId._id : productOrId;
       const guestSessionId = getGuestSessionId();
       const res = await api.post('/cart/add', {
         productId,

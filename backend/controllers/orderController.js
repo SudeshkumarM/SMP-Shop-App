@@ -4,9 +4,9 @@ const Inventory = require('../models/Inventory');
 const Cart = require('../models/Cart');
 const Customer = require('../models/Customer');
 const Shop = require('../models/Shop');
-const WhatsAppService = require('../services/whatsappService');
 const { createPaymentIntent } = require('../services/paymentService');
 const { sendOrderConfirmation } = require('../services/emailService');
+const { emitRealtimeUpdate } = require('../utils/realtime');
 
 const generateOrderNumber = () => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -167,25 +167,8 @@ const createOrder = async (req, res) => {
     // Send order confirmation email asynchronously
     sendOrderConfirmation(order).catch(e => console.log('Email delivery note:', e.message));
 
-    // Optional WhatsApp Order Confirmation
-    if (customer.phone && shop && shop.settings && shop.settings.whatsappSettings && shop.settings.whatsappSettings.notifyOnInvoice) {
-      WhatsAppService.sendMessage({
-        phone: customer.phone,
-        customerName: customer.fullName,
-        customerId: customer._id,
-        messageType: 'INVOICE',
-        templateName: 'order_placed',
-        content: WhatsAppService.buildInvoiceMessage({
-          customerName: customer.fullName,
-          invoiceNumber: order.orderNumber,
-          grandTotal: order.grandTotal,
-          itemCount: order.items.reduce((acc, i) => acc + i.quantity, 0),
-          paymentMethod: order.paymentMethod
-        }),
-        shopId: shop._id,
-        requiresConsent: false
-      }).catch(err => console.error('[WhatsApp Online Order Err]', err.message));
-    }
+    // Emit real-time inventory change
+    emitRealtimeUpdate(req.app, 'inventory:updated', { items: orderItems });
 
     res.status(201).json({
       success: true,

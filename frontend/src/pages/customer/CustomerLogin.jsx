@@ -127,29 +127,11 @@ const CustomerLogin = () => {
               </button>
             </form>
 
-            <div className="text-center small text-muted mb-4">
+            <div className="text-center small text-muted">
               Don't have an account?{' '}
               <Link to="/customer/register" className="text-primary fw-bold text-decoration-none">
                 Register with OTP
               </Link>
-            </div>
-
-            <hr className="my-3" />
-
-            {/* Portal Switcher */}
-            <div className="text-center">
-              <span className="text-muted small d-block mb-2">Are you a staff, admin, or store owner?</span>
-              <div className="d-flex justify-content-center gap-2 flex-wrap">
-                <Link to="/staff/login" className="badge bg-success-subtle text-success p-2 text-decoration-none">
-                  <i className="bi bi-receipt me-1"></i> Staff POS
-                </Link>
-                <Link to="/admin/login" className="badge bg-warning-subtle text-dark p-2 text-decoration-none">
-                  <i className="bi bi-shield-lock me-1"></i> Admin Portal
-                </Link>
-                <Link to="/owner/login" className="badge bg-purple-subtle text-purple p-2 text-decoration-none" style={{ backgroundColor: '#f3e5f5', color: '#6a1b9a' }}>
-                  <i className="bi bi-briefcase me-1"></i> Owner Portal
-                </Link>
-              </div>
             </div>
           </div>
         </div>

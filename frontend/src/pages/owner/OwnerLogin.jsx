@@ -99,7 +99,7 @@ const OwnerLogin = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn btn-dark btn-lg w-100 py-2 rounded-pill fw-bold mb-3 shadow text-warning"
+                className="btn btn-primary btn-lg w-100 py-2 rounded-pill fw-bold mb-3 shadow"
               >
                 {loading ? <span className="spinner-border spinner-border-sm me-2"></span> : 'Authenticate as Master Owner'}
               </button>

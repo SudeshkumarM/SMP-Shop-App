@@ -158,7 +158,7 @@ const seedAll = async () => {
       phone: adminUser.phone
     });
 
-    // 5. Create Staff 1 (kumar01 - Cashier)
+    // 5. Create Staff (kumar01 - Cashier)
     const staff1User = await User.create({
       name: 'Kumar',
       username: 'kumar01',
@@ -185,44 +185,13 @@ const seedAll = async () => {
       jobRole: 'Senior Cashier',
       canEditBills: true,
       salary: 28000,
-      totalBillsGenerated: 15,
-      totalSalesValue: 35000
-    });
-
-    // 6. Create Staff 2 (staff02)
-    const staff2User = await User.create({
-      name: 'Anita Roy',
-      username: 'staff02',
-      email: 'staff02@smp.com',
-      phone: '9840045678',
-      password: 'Password123',
-      role: 'staff',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      isActive: true
-    });
-
-    await Staff.create({
-      userId: staff2User._id,
-      staffId: 'STF-1002',
-      username: 'staff02',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      fullName: 'Anita Roy',
-      email: staff2User.email,
-      phone: staff2User.phone,
-      department: 'Billing & POS',
-      designation: 'Billing Executive',
-      jobRole: 'Billing Executive',
-      canEditBills: false,
-      salary: 22000,
-      totalBillsGenerated: 5,
-      totalSalesValue: 12000
+      totalBillsGenerated: 0,
+      totalSalesValue: 0
     });
 
     console.log('[Seed] 4. Creating Customer Account...');
 
-    // 7. Create Customer Account (Kumar)
+    // 6. Create Customer Account (Kumar)
     const customerUser = await User.create({
       name: 'Kumar',
       username: 'kumar_customer',
@@ -243,11 +212,10 @@ const seedAll = async () => {
       email: customerUser.email,
       phone: customerUser.phone,
       isPhoneVerified: true,
-      loyaltyPoints: 120,
-      totalPurchases: 2,
-      totalSpend: 2100,
+      loyaltyPoints: 0,
+      totalPurchases: 0,
+      totalSpend: 0,
       consentPromotionalWhatsApp: true,
-      lastPurchaseDate: new Date(),
       addresses: [{
         title: 'Home',
         street: '15 Gandhi Road, T. Nagar',
@@ -261,10 +229,10 @@ const seedAll = async () => {
 
     console.log('[Seed] 5. Creating Single Category & ONLY ONE Product (Shirt @ ₹500)...');
 
-    // 8. ONLY ONE Category per requirements: "Do not create multiple product categories"
+    // 7. ONLY ONE Category per requirements: "1 Category (Clothing)"
     const singleCategory = await Category.create({
-      name: 'Apparel & Clothing',
-      slug: 'apparel-clothing',
+      name: 'Clothing',
+      slug: 'clothing',
       description: 'Quality retail garments and everyday essential shirts.',
       image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80',
       shopId: dressShop._id,
@@ -272,7 +240,7 @@ const seedAll = async () => {
       isActive: true
     });
 
-    // 9. ONLY ONE Product per requirements: "Initially create ONLY ONE PRODUCT. Product Name: Shirt, Selling Price: ₹500"
+    // 8. ONLY ONE Product per requirements: "Initially create ONLY ONE PRODUCT. Product Name: Shirt, Selling Price: ₹500"
     const singleShirt = await Product.create({
       name: 'Shirt',
       sku: 'SMP-SHIRT-001',
@@ -304,7 +272,7 @@ const seedAll = async () => {
       tags: ['shirt', 'cotton', 'formal', 'casual', 'men']
     });
 
-    // 10. Create Supplier & Inventory Record for Shirt
+    // 9. Create Supplier & Inventory Record for Shirt
     const supplier = await Supplier.create({
       companyName: 'Chennimalai Weaving Mills',
       contactPerson: 'M. Senthil',
@@ -339,169 +307,16 @@ const seedAll = async () => {
       }]
     });
 
-    console.log('[Seed] 6. Creating Initial Capital Investments & Expenses...');
-
-    // 11. Initial Capital Investments
-    await Investment.create([
-      {
-        investmentId: 'INV-CAP-001',
-        shopId: dressShop._id,
-        branchId: mainBranch._id,
-        title: 'Initial Store Deposit & Interior Setup',
-        category: 'Initial Capital',
-        amount: 800000,
-        date: new Date('2026-01-10'),
-        sourceOfFunds: 'Owner Equity'
-      },
-      {
-        investmentId: 'INV-CAP-002',
-        shopId: dressShop._id,
-        branchId: mainBranch._id,
-        title: 'Initial Garment Stock Inward Fund',
-        category: 'Inventory Capital',
-        amount: 300000,
-        date: new Date('2026-02-01'),
-        sourceOfFunds: 'Owner Equity'
-      }
-    ]);
-
-    // 12. Operating Expenses
-    await Expense.create([
-      {
-        expenseId: 'EXP-2026-001',
-        shopId: dressShop._id,
-        branchId: mainBranch._id,
-        category: 'Store Rent',
-        title: 'Anna Nagar Commercial Store Rent',
-        amount: 45000,
-        date: new Date(),
-        paymentMethod: 'Bank Transfer'
-      },
-      {
-        expenseId: 'EXP-2026-002',
-        shopId: dressShop._id,
-        branchId: mainBranch._id,
-        category: 'Electricity & Utilities',
-        title: 'Monthly Electricity & Broadband',
-        amount: 8500,
-        date: new Date(),
-        paymentMethod: 'UPI'
-      }
-    ]);
-
-    console.log('[Seed] 7. Creating Initial Order & Invoice for Shirt...');
-
-    // 13. Create sample initial POS sale
-    const invNumber = 'SMP-INV-20261117-0001';
-    const sampleOrder = await Order.create({
-      orderNumber: 'POS-20261117-01',
-      orderType: 'POS',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      staffId: staff1._id,
-      customerId: customer._id,
-      customerDetails: {
-        name: customer.fullName,
-        phone: customer.phone,
-        email: customer.email
-      },
-      items: [{
-        productId: singleShirt._id,
-        productName: singleShirt.name,
-        sku: singleShirt.sku,
-        barcode: singleShirt.barcode,
-        size: 'L',
-        colour: 'Classic White',
-        quantity: 2,
-        costPrice: 250,
-        unitPrice: 500,
-        discountAmount: 0,
-        gstPercent: 5,
-        gstAmount: 50,
-        totalAmount: 1050
-      }],
-      subtotal: 1000,
-      totalDiscount: 0,
-      totalGst: 50,
-      grandTotal: 1050,
-      totalCost: 500,
-      paymentMethod: 'POS_CASH',
-      paymentStatus: 'PAID',
-      orderStatus: 'DELIVERED',
-      invoiceNumber: invNumber
-    });
-
-    await Invoice.create({
-      invoiceNumber: invNumber,
-      orderId: sampleOrder._id,
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      staffId: staff1._id,
-      customerId: customer._id,
-      shopInfo: {
-        name: dressShop.name,
-        address: `${dressShop.address.street}, ${dressShop.address.city}`,
-        phone: dressShop.contactPhone,
-        email: dressShop.contactEmail,
-        gstNumber: dressShop.gstNumber
-      },
-      customerInfo: {
-        name: customer.fullName,
-        phone: customer.phone,
-        email: customer.email,
-        address: '15 Gandhi Road, T. Nagar, Chennai'
-      },
-      items: [{
-        productId: singleShirt._id,
-        productName: singleShirt.name,
-        sku: singleShirt.sku,
-        barcode: singleShirt.barcode,
-        size: 'L',
-        colour: 'Classic White',
-        quantity: 2,
-        unitPrice: 500,
-        discountAmount: 0,
-        gstPercent: 5,
-        gstAmount: 50,
-        totalAmount: 1050
-      }],
-      subtotal: 1000,
-      totalDiscount: 0,
-      cgstAmount: 25,
-      sgstAmount: 25,
-      igstAmount: 0,
-      grandTotal: 1050,
-      paymentMethod: 'POS_CASH',
-      paymentStatus: 'PAID',
-      barcode: generateInvoiceBarcode(invNumber),
-      printedCount: 1
-    });
-
-    console.log('[Seed] 8. Creating Initial Coupon SMP20...');
-    await Coupon.create({
-      code: 'SMP20',
-      title: 'Welcome 20% Discount',
-      description: 'Enjoy 20% OFF on your apparel purchase at SMP.',
-      discountPercent: 20,
-      minPurchaseAmount: 500,
-      startDate: new Date(),
-      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      isActive: true,
-      sendWhatsApp: false,
-      shopId: dressShop._id,
-      createdBy: adminUser._id
-    });
-
     console.log('\n=============================================================');
-    console.log('  🎉 DATABASE SEEDING COMPLETED WITH ACCURATE DATA!');
+    console.log('  🎉 DATABASE SEEDING COMPLETED WITH CLEAN PRODUCTION DATA!');
     console.log('=============================================================');
     console.log('  ▸ Initial Product:  ONLY ONE Product -> "Shirt" @ ₹500');
-    console.log('  ▸ Initial Category: "Apparel & Clothing"');
+    console.log('  ▸ Initial Category: "Clothing"');
     console.log('  ▸ Owner:            owner@smp.com / kumar / Password123');
     console.log('  ▸ Admin:            admin@smp.com / admin01 / Password123');
-    console.log('  ▸ Staff 1:          staff@smp.com / kumar01 / Password123 (Can Edit Bills)');
-    console.log('  ▸ Staff 2:          staff02@smp.com / staff02 / Password123');
+    console.log('  ▸ Staff:            staff@smp.com / kumar01 / Password123 (Can Edit Bills)');
     console.log('  ▸ Customer:         customer@smp.com / kumar_customer / Password123');
+    console.log('  ▸ Fake Data:        0 Fake Orders, 0 Fake Bills, 0 Fake Investments, 0 Fake Expenses');
     console.log('=============================================================\n');
 
     process.exit(0);

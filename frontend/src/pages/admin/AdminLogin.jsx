@@ -99,7 +99,7 @@ const AdminLogin = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn btn-warning text-dark w-100 py-2 rounded-pill fw-bold mb-3 shadow-sm"
+                className="btn btn-primary w-100 py-2 rounded-pill fw-bold mb-3 shadow-sm"
               >
                 {loading ? <span className="spinner-border spinner-border-sm me-2"></span> : 'Login to Admin Console'}
               </button>

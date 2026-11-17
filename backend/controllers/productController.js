@@ -2,8 +2,10 @@ const Product = require('../models/Product');
 const Category = require('../models/Category');
 const Inventory = require('../models/Inventory');
 const Shop = require('../models/Shop');
+const Coupon = require('../models/Coupon');
 const xlsx = require('xlsx');
 const { generateProductBarcode } = require('../utils/generateBarcode');
+const { emitRealtimeUpdate } = require('../utils/realtime');
 
 /**
  * @desc    Get All Products with full filtering and search
@@ -341,6 +343,8 @@ const updateProduct = async (req, res) => {
 
     await product.save();
 
+    emitRealtimeUpdate(req.app, 'product:updated', { product });
+
     res.status(200).json({
       success: true,
       message: 'Product updated successfully',
@@ -366,6 +370,8 @@ const deleteProduct = async (req, res) => {
     // Soft delete
     product.isActive = false;
     await product.save();
+
+    emitRealtimeUpdate(req.app, 'product:updated', { product });
 
     res.status(200).json({
       success: true,
@@ -568,6 +574,20 @@ const getShopDeliveryRules = async (req, res) => {
   }
 };
 
+const getActiveCoupons = async (req, res) => {
+  try {
+    const now = new Date();
+    const coupons = await Coupon.find({
+      isActive: true,
+      expiryDate: { $gte: now }
+    }).sort({ discountPercent: -1 });
+
+    res.status(200).json({ success: true, count: coupons.length, coupons });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getProducts,
   getProductById,
@@ -578,5 +598,6 @@ module.exports = {
   createCategory,
   importProductsExcel,
   exportProductsExcel,
-  getShopDeliveryRules
+  getShopDeliveryRules,
+  getActiveCoupons
 };

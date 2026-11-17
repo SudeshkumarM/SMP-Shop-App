@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
+import socket from '../../services/socket';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -42,6 +43,26 @@ const ProductDetail = () => {
       }
     };
     fetchProduct();
+
+    const handleProductRealtime = (data) => {
+      if (data && data.product && data.product._id === id) {
+        setProduct((prev) => ({ ...prev, ...data.product }));
+      }
+    };
+
+    const handleInventoryRealtime = (data) => {
+      if (data && data.productId === id) {
+        setProduct((prev) => (prev ? { ...prev, availableQuantity: data.currentStock } : prev));
+      }
+    };
+
+    socket.on('product:updated', handleProductRealtime);
+    socket.on('inventory:updated', handleInventoryRealtime);
+
+    return () => {
+      socket.off('product:updated', handleProductRealtime);
+      socket.off('inventory:updated', handleInventoryRealtime);
+    };
   }, [id]);
 
   const handleAddToCart = async () => {
@@ -273,7 +294,7 @@ const ProductDetail = () => {
               <button
                 onClick={handleAddToCart}
                 disabled={product.availableQuantity <= 0}
-                className="btn btn-warning btn-lg rounded-pill px-4 fw-bold flex-grow-1 shadow-sm d-flex align-items-center justify-content-center gap-2"
+                className="btn btn-danger btn-lg rounded-pill px-4 fw-bold flex-grow-1 shadow-sm d-flex align-items-center justify-content-center gap-2"
               >
                 <i className="bi bi-cart3"></i> Add to Cart
               </button>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
+import socket from '../../services/socket';
 import ProductCard from '../../components/customer/ProductCard';
 
 const Products = () => {
@@ -63,6 +64,18 @@ const Products = () => {
 
   useEffect(() => {
     fetchProducts();
+
+    const handleRealtimeUpdate = () => {
+      fetchProducts();
+    };
+
+    socket.on('product:updated', handleRealtimeUpdate);
+    socket.on('inventory:updated', handleRealtimeUpdate);
+
+    return () => {
+      socket.off('product:updated', handleRealtimeUpdate);
+      socket.off('inventory:updated', handleRealtimeUpdate);
+    };
   }, [category, brand, size, colour, sort, inStock]);
 
   const handleApplyFilter = (e) => {

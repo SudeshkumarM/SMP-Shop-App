@@ -11,6 +11,7 @@ const Shop = require('../models/Shop');
 const Coupon = require('../models/Coupon');
 const WhatsAppLog = require('../models/WhatsAppLog');
 const WhatsAppService = require('../services/whatsappService');
+const { emitRealtimeUpdate } = require('../utils/realtime');
 const xlsx = require('xlsx');
 
 /**
@@ -574,6 +575,7 @@ const updateDeliverySettings = async (req, res) => {
       ...req.body
     };
     await shop.save();
+    emitRealtimeUpdate(req.app, 'settings:updated', { type: 'delivery', settings: shop.settings.deliverySettings });
     res.status(200).json({ success: true, message: 'Delivery settings updated successfully', settings: shop.settings.deliverySettings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -631,6 +633,7 @@ const updateGstSettings = async (req, res) => {
       shop.gstNumber = req.body.gstNumber;
     }
     await shop.save();
+    emitRealtimeUpdate(req.app, 'settings:updated', { type: 'gst', settings: shop.settings.gstSettings });
     res.status(200).json({ success: true, message: 'GST settings updated successfully', settings: shop.settings.gstSettings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -711,8 +714,23 @@ const getCoupons = async (req, res) => {
 
 const createCoupon = async (req, res) => {
   try {
-    const { code, title, description, discountPercent, minPurchaseAmount, expiryDate, isActive, sendWhatsApp } = req.body;
-    if (!code || !title || !discountPercent || !expiryDate) {
+    const {
+      code,
+      title,
+      description,
+      discountPercent,
+      minPurchaseAmount,
+      validityDays = 10,
+      eligibilityCriteria = 'ALL_CONSENTED',
+      minLifetimeSpend = 0,
+      minOrdersCount = 0,
+      startDate = new Date(),
+      expiryDate,
+      isActive,
+      sendWhatsApp
+    } = req.body;
+
+    if (!code || !title || !discountPercent) {
       return res.status(400).json({ success: false, message: 'Please fill all required coupon fields.' });
     }
 
@@ -721,57 +739,91 @@ const createCoupon = async (req, res) => {
       return res.status(400).json({ success: false, message: `Coupon code ${code.toUpperCase()} already exists.` });
     }
 
+    const calculatedExpiry = expiryDate ? new Date(expiryDate) : new Date(Date.now() + Number(validityDays) * 24 * 60 * 60 * 1000);
+
     const coupon = await Coupon.create({
       code: code.toUpperCase().trim(),
       title,
       description,
       discountPercent: Number(discountPercent),
       minPurchaseAmount: Number(minPurchaseAmount || 0),
-      expiryDate,
+      validityDays: Number(validityDays || 10),
+      eligibilityCriteria,
+      minLifetimeSpend: Number(minLifetimeSpend || 0),
+      minOrdersCount: Number(minOrdersCount || 0),
+      startDate: new Date(startDate),
+      expiryDate: calculatedExpiry,
       isActive: isActive !== undefined ? isActive : true,
       sendWhatsApp: Boolean(sendWhatsApp),
       createdBy: req.user._id,
       shopId: req.user.shopId || null
     });
 
-    let whatsAppSummary = { sent: 0, optedOut: 0, failed: 0 };
+    let whatsAppSummary = { eligible: 0, sent: 0, optedOut: 0, failed: 0, skippedDuplicate: 0 };
 
-    // If WhatsApp notification is ENABLED, dispatch to consented customers
-    if (sendWhatsApp) {
-      const consentedCustomers = await Customer.find({ consentPromotionalWhatsApp: true });
-      for (const cust of consentedCustomers) {
-        if (!cust.phone) continue;
-        const msgResult = await WhatsAppService.sendMessage({
-          phone: cust.phone,
-          customerName: cust.fullName,
-          customerId: cust._id,
-          messageType: 'COUPON',
-          templateName: 'coupon_voucher',
-          content: WhatsAppService.buildCouponMessage({
-            customerName: cust.fullName,
-            couponCode: coupon.code,
-            discountPercent: coupon.discountPercent,
-            minPurchase: coupon.minPurchaseAmount,
-            expiryDate: coupon.expiryDate
-          }),
-          shopId: req.user.shopId,
-          sentBy: req.user._id,
-          requiresConsent: true
-        });
-
-        if (msgResult.status === 'SENT' || msgResult.status === 'SIMULATED') {
-          whatsAppSummary.sent++;
-        } else if (msgResult.status === 'OPTED_OUT') {
-          whatsAppSummary.optedOut++;
-        } else {
-          whatsAppSummary.failed++;
+    // If WhatsApp notification is ENABLED, check eligibility and consent
+    if (sendWhatsApp && coupon.isActive) {
+      const now = new Date();
+      if (now >= coupon.startDate && now <= coupon.expiryDate) {
+        // Query consented customers
+        const customerQuery = { consentPromotionalWhatsApp: true };
+        if (eligibilityCriteria === 'RETURNING_CUSTOMERS') {
+          customerQuery.totalPurchases = { $gt: 0 };
+        } else if (eligibilityCriteria === 'NEW_CUSTOMERS') {
+          customerQuery.totalPurchases = { $lte: 0 };
+        } else if (eligibilityCriteria === 'MIN_PURCHASE' && minLifetimeSpend > 0) {
+          customerQuery.totalSpend = { $gte: minLifetimeSpend };
         }
+
+        const eligibleCustomers = await Customer.find(customerQuery);
+        whatsAppSummary.eligible = eligibleCustomers.length;
+
+        for (const cust of eligibleCustomers) {
+          if (!cust.phone) continue;
+          const cleanP = cust.phone.replace(/\D/g, '').slice(-10);
+
+          // Prevent duplicate notification for same campaign
+          if (coupon.notifiedCustomerPhones && coupon.notifiedCustomerPhones.includes(cleanP)) {
+            whatsAppSummary.skippedDuplicate++;
+            continue;
+          }
+
+          const msgResult = await WhatsAppService.sendMessage({
+            phone: cust.phone,
+            customerName: cust.fullName,
+            customerId: cust._id,
+            messageType: 'COUPON',
+            templateName: 'coupon_voucher',
+            content: WhatsAppService.buildCouponMessage({
+              customerName: cust.fullName,
+              couponCode: coupon.code,
+              discountPercent: coupon.discountPercent,
+              minPurchase: coupon.minPurchaseAmount,
+              expiryDate: coupon.expiryDate
+            }),
+            shopId: req.user.shopId,
+            sentBy: req.user._id,
+            requiresConsent: true
+          });
+
+          if (msgResult.status === 'SENT' || msgResult.status === 'SIMULATED') {
+            whatsAppSummary.sent++;
+            coupon.notifiedCustomerPhones.push(cleanP);
+          } else if (msgResult.status === 'OPTED_OUT') {
+            whatsAppSummary.optedOut++;
+          } else {
+            whatsAppSummary.failed++;
+          }
+        }
+        await coupon.save();
       }
     }
 
+    emitRealtimeUpdate(req.app, 'coupon:updated', { coupon });
+
     res.status(201).json({
       success: true,
-      message: `Coupon ${coupon.code} created successfully.${sendWhatsApp ? ` WhatsApp notifications dispatched to ${whatsAppSummary.sent} consented customer(s).` : ''}`,
+      message: `Coupon ${coupon.code} created successfully.${sendWhatsApp ? ` WhatsApp notifications dispatched to ${whatsAppSummary.sent} eligible consented customer(s).` : ''}`,
       coupon,
       whatsAppSummary
     });

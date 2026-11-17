@@ -223,6 +223,15 @@ const AppRoutes = () => {
         <Route path="shops" element={<OwnerShops />} />
         <Route path="branches" element={<OwnerBranches />} />
         <Route path="admins" element={<OwnerAdmins />} />
+        <Route path="staff" element={<AdminStaff />} />
+        <Route path="customers" element={<AdminCustomers />} />
+        <Route path="products" element={<AdminProducts />} />
+        <Route path="categories" element={<AdminCategories />} />
+        <Route path="inventory" element={<AdminInventory />} />
+        <Route path="orders" element={<AdminOrders />} />
+        <Route path="delivery-settings" element={<AdminDeliverySettings />} />
+        <Route path="gst-settings" element={<AdminGstSettings />} />
+        <Route path="offers" element={<AdminOffers />} />
         <Route path="billing" element={<OwnerBilling />} />
         <Route path="investments" element={<OwnerInvestments />} />
         <Route path="expenses" element={<OwnerExpenses />} />

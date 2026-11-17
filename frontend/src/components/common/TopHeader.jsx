@@ -5,28 +5,47 @@ const TopHeader = ({ title, subtitle, module }) => {
   const { user } = useAuth();
 
   const getRoleBadge = () => {
-    if (module === 'owner') return 'bg-dark text-warning border border-warning';
-    if (module === 'admin') return 'bg-warning text-dark';
-    if (module === 'staff') return 'bg-success text-white';
-    return 'bg-primary text-white';
+    if (module === 'owner') return 'text-white border border-danger';
+    if (module === 'admin') return 'text-white border border-primary';
+    if (module === 'staff') return 'text-white border border-success';
+    return 'text-white';
+  };
+
+  const getRoleBadgeBg = () => {
+    if (module === 'owner') return 'var(--smp-accent-red)';
+    if (module === 'admin') return 'var(--smp-accent-blue)';
+    if (module === 'staff') return '#059669';
+    return 'var(--smp-accent-blue)';
   };
 
   return (
-    <header className="bg-white border-bottom shadow-sm px-4 py-3 d-flex flex-wrap align-items-center justify-content-between gap-3">
+    <header
+      className="px-4 py-3 d-flex flex-wrap align-items-center justify-content-between gap-3 shadow-sm"
+      style={{
+        backgroundColor: 'var(--smp-bg-primary)',
+        borderBottom: '1px solid var(--smp-border)'
+      }}
+    >
       <div>
-        <h4 className="mb-0 fw-bold brand-font text-dark">{title}</h4>
-        {subtitle && <small className="text-muted">{subtitle}</small>}
+        <h4 className="mb-0 fw-bold brand-font text-white">{title}</h4>
+        {subtitle && <small style={{ color: 'var(--smp-text-secondary)' }}>{subtitle}</small>}
       </div>
 
       <div className="d-flex align-items-center gap-3">
         {/* Active Shop Badge */}
-        <div className="d-none d-md-flex align-items-center gap-2 bg-light px-3 py-1 rounded-pill border">
-          <i className="bi bi-shop text-primary"></i>
-          <span className="small fw-semibold text-secondary">
-            {user?.shopName || 'SMP Elite Fashions'}
+        <div
+          className="d-none d-md-flex align-items-center gap-2 px-3 py-1 rounded-pill"
+          style={{
+            backgroundColor: 'var(--smp-bg-secondary)',
+            border: '1px solid var(--smp-border)'
+          }}
+        >
+          <i className="bi bi-shop" style={{ color: 'var(--smp-accent-blue)' }}></i>
+          <span className="small fw-semibold text-white">
+            {user?.shopName || 'SMP Flagship'}
           </span>
           {user?.branchName && (
-            <span className="badge bg-secondary text-white rounded-pill" style={{ fontSize: '0.65rem' }}>
+            <span className="badge rounded-pill" style={{ backgroundColor: 'var(--smp-bg-card)', color: 'var(--smp-text-secondary)', fontSize: '0.65rem' }}>
               {user.branchName}
             </span>
           )}
@@ -34,10 +53,16 @@ const TopHeader = ({ title, subtitle, module }) => {
 
         {/* Personalized Welcome Banner */}
         <div className="d-flex align-items-center gap-2">
-          <span className="fw-bold text-primary">
-            Welcome {user?.name?.split(' ')[0] || 'User'}!
+          <span className="fw-bold" style={{ color: 'var(--smp-accent-blue)' }}>
+            Welcome, {user?.name?.split(' ')[0] || 'User'}!
           </span>
-          <span className={`badge ${getRoleBadge()} text-uppercase px-2 py-1`} style={{ fontSize: '0.7rem' }}>
+          <span
+            className={`badge text-uppercase px-2 py-1 ${getRoleBadge()}`}
+            style={{
+              fontSize: '0.7rem',
+              backgroundColor: getRoleBadgeBg()
+            }}
+          >
             {user?.role || module}
           </span>
         </div>

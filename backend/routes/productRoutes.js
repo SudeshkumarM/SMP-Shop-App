@@ -11,7 +11,8 @@ const {
   createCategory,
   importProductsExcel,
   exportProductsExcel,
-  getShopDeliveryRules
+  getShopDeliveryRules,
+  getActiveCoupons
 } = require('../controllers/productController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -20,6 +21,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Public endpoints
 router.get('/', getProducts);
 router.get('/delivery/rules', getShopDeliveryRules);
+router.get('/offers/active', getActiveCoupons);
 router.get('/categories/list', getCategories);
 router.get('/export-excel', protect, authorize('admin', 'owner'), exportProductsExcel);
 router.get('/:id', getProductById);

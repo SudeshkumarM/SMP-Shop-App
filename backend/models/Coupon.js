@@ -44,6 +44,26 @@ const couponSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  validityDays: {
+    type: Number,
+    default: 10
+  },
+  eligibilityCriteria: {
+    type: String,
+    enum: ['ALL_CONSENTED', 'MIN_PURCHASE', 'RETURNING_CUSTOMERS', 'NEW_CUSTOMERS'],
+    default: 'ALL_CONSENTED'
+  },
+  minLifetimeSpend: {
+    type: Number,
+    default: 0
+  },
+  minOrdersCount: {
+    type: Number,
+    default: 0
+  },
+  notifiedCustomerPhones: [{
+    type: String
+  }],
   usageCount: {
     type: Number,
     default: 0
