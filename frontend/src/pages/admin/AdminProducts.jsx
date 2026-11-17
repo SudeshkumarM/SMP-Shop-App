@@ -18,7 +18,7 @@ const AdminProducts = () => {
     name: '',
     sku: '',
     barcode: '',
-    brand: 'SMP Heritage',
+    brand: 'SMP',
     category: '',
     description: '',
     costPrice: 800,
@@ -167,7 +167,7 @@ const AdminProducts = () => {
       </div>
 
       {/* Search Header */}
-      <div className="smp-card p-3 bg-white mb-4 shadow-sm">
+      <div className="smp-card p-3 mb-4 shadow-sm">
         <div className="d-flex gap-2">
           <input
             type="text"
@@ -183,20 +183,24 @@ const AdminProducts = () => {
       </div>
 
       {/* Products Table */}
-      <div className="smp-card p-4 bg-white shadow-sm">
+      <div className="smp-card p-4 shadow-sm">
         {loading ? (
           <div className="text-center py-5">
             <div className="spinner-border text-primary" role="status"></div>
           </div>
         ) : products.length === 0 ? (
           <div className="text-center py-5 text-muted">
-            <i className="bi bi-tags display-4 text-secondary mb-2 d-block"></i>
-            <h5>No Products Found</h5>
+            <i className="bi bi-box-seam display-4 text-secondary mb-2 d-block"></i>
+            <h5 className="text-white">No Products in Catalog</h5>
+            <p className="small mb-3" style={{ color: 'var(--smp-text-secondary)' }}>Click 'Add Product' above or import via Excel to add items to your shop.</p>
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm px-3">
+              <i className="bi bi-plus-lg me-1"></i> Add First Product
+            </button>
           </div>
         ) : (
           <div className="table-responsive">
             <table className="table table-hover align-middle small mb-0">
-              <thead className="table-light">
+              <thead>
                 <tr>
                   <th>Product</th>
                   <th>SKU / Barcode</th>
@@ -221,7 +225,7 @@ const AdminProducts = () => {
                           style={{ width: '45px', height: '45px' }}
                         />
                         <div>
-                          <div className="fw-bold text-dark">{p.name}</div>
+                          <div className="fw-bold text-white">{p.name}</div>
                           <small className="text-muted">{p.brand}</small>
                         </div>
                       </div>
@@ -276,8 +280,8 @@ const AdminProducts = () => {
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content rounded-4 border-0 shadow">
               <div className="modal-header border-0 pb-0">
-                <h5 className="modal-title fw-bold">Add New Product to Shop Catalog</h5>
-                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
+                <h5 className="modal-title fw-bold text-white">Add New Product to Shop Catalog</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowAddModal(false)}></button>
               </div>
               <form onSubmit={handleCreateProduct}>
                 <div className="modal-body">
@@ -448,8 +452,8 @@ const AdminProducts = () => {
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content rounded-4 border-0 shadow">
               <div className="modal-header border-0 pb-0">
-                <h5 className="modal-title fw-bold">Edit Product ({editingProduct.sku})</h5>
-                <button type="button" className="btn-close" onClick={() => setEditingProduct(null)}></button>
+                <h5 className="modal-title fw-bold text-white">Edit Product ({editingProduct.sku})</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setEditingProduct(null)}></button>
               </div>
               <form onSubmit={handleUpdateProduct}>
                 <div className="modal-body">

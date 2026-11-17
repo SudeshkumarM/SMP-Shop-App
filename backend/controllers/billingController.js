@@ -27,7 +27,7 @@ const searchProductPOS = async (req, res) => {
   try {
     const { query } = req.query;
     if (!query) {
-      // Default to returning active products (e.g. the initial Shirt)
+      // Default to returning active products in store catalog
       const products = await Product.find({ isActive: true }).limit(10);
       return res.status(200).json({ success: true, products });
     }
@@ -72,6 +72,24 @@ const createBillingTransaction = async (req, res) => {
 
     if (!items || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Please add at least one product to the bill.' });
+    }
+
+    // QR Payment Verification Guard
+    const { transactionRef } = req.body;
+    if (paymentMethod === 'POS_UPI_QR') {
+      if (!transactionRef || String(transactionRef).trim().length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Payment verification failed: A valid UPI Transaction Reference / UTR (at least 6 digits) is required for QR payment.'
+        });
+      }
+      const existingTxn = await Order.findOne({ 'paymentDetails.transactionRef': String(transactionRef).trim() });
+      if (existingTxn) {
+        return res.status(400).json({
+          success: false,
+          message: 'This UPI Reference Number has already been recorded on a previous invoice.'
+        });
+      }
     }
 
     const shopId = req.user.shopId;
@@ -202,6 +220,7 @@ const createBillingTransaction = async (req, res) => {
       totalCost: Math.round(totalCost * 100) / 100,
       paymentMethod,
       paymentStatus,
+      paymentDetails: { transactionRef: transactionRef || null },
       orderStatus: 'DELIVERED',
       invoiceNumber
     });
@@ -215,7 +234,7 @@ const createBillingTransaction = async (req, res) => {
       staffId: staff ? staff._id : null,
       customerId: customer ? customer._id : null,
       shopInfo: {
-        name: shop ? shop.name : 'SMP Elite Fashions',
+        name: shop ? shop.name : 'SMP',
         address: shop && shop.address ? `${shop.address.street}, ${shop.address.city}` : 'SMP Central Retail Mall',
         phone: shop ? shop.contactPhone : '+91 98765 43210',
         email: shop ? shop.contactEmail : 'billing@smp.com',
@@ -237,6 +256,8 @@ const createBillingTransaction = async (req, res) => {
       grandTotal,
       paymentMethod,
       paymentStatus,
+      paymentDetails: { transactionRef: transactionRef || null },
+      deliveryStatus: 'PENDING',
       barcode: generateInvoiceBarcode(invoiceNumber),
       printedCount: 1
     });
@@ -274,6 +295,33 @@ const createBillingTransaction = async (req, res) => {
       await customer.save();
     }
 
+    // Step 7: Send WhatsApp or SMS fallback bill notification
+    let notificationResult = null;
+    if (customerPhone && String(customerPhone).trim().length >= 10) {
+      try {
+        notificationResult = await WhatsAppService.sendBillNotificationWithFallback({
+          phone: String(customerPhone).trim(),
+          customerName: customerName || (customer ? customer.fullName : 'Customer'),
+          invoiceNumber,
+          grandTotal,
+          itemCount: billItems.reduce((acc, curr) => acc + curr.quantity, 0),
+          paymentMethod,
+          shopId: shop ? shop._id : null,
+          sentBy: req.user._id,
+          customerId: customer ? customer._id : null
+        });
+        if (notificationResult?.deliveryStatus) {
+          invoice.deliveryStatus = notificationResult.deliveryStatus;
+          await invoice.save();
+        }
+      } catch (notifErr) {
+        console.error('[BillingController] Notification error:', notifErr.message);
+        notificationResult = { deliveryStatus: 'Failed', error: notifErr.message };
+        invoice.deliveryStatus = 'Failed';
+        await invoice.save();
+      }
+    }
+
     // Emit real-time inventory & billing update across all clients
     emitRealtimeUpdate(req.app, 'inventory:updated', { billItems, invoiceNumber });
     emitRealtimeUpdate(req.app, 'bill:created', { invoice });
@@ -282,11 +330,24 @@ const createBillingTransaction = async (req, res) => {
       success: true,
       message: 'Billing completed and invoice generated successfully.',
       invoice,
-      order
+      order,
+      deliveryStatus: notificationResult?.deliveryStatus || 'Skipped',
+      notificationChannel: notificationResult?.channel || 'None'
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+/**
+ * @desc    Verify QR Payment Reference & Complete Billing
+ * @route   POST /api/billing/verify-qr-payment
+ * @access  Private (Staff, Admin, Owner)
+ */
+const verifyQrPaymentAndBill = async (req, res) => {
+  req.body.paymentMethod = 'POS_UPI_QR';
+  req.body.paymentStatus = 'PAID';
+  return createBillingTransaction(req, res);
 };
 
 /**
@@ -650,6 +711,7 @@ const lookupCustomerByPhone = async (req, res) => {
 module.exports = {
   searchProductPOS,
   createBillingTransaction,
+  verifyQrPaymentAndBill,
   getBillingHistory,
   getInvoiceById,
   updateBill,

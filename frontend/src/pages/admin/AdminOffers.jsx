@@ -23,8 +23,8 @@ const AdminOffers = () => {
 
   // Offer Broadcast Form
   const [offerBroadcast, setOfferBroadcast] = useState({
-    offerName: 'SMP Festive Special',
-    offerDescription: 'Exclusive discount on 100% pure cotton tailored shirts.',
+    offerName: 'SMP Special Promotion',
+    offerDescription: 'Exclusive discount across our latest fashion collections.',
     discountPercent: 20,
     couponCode: 'SMP20',
     startDate: new Date().toISOString().slice(0, 10),
@@ -222,9 +222,9 @@ const AdminOffers = () => {
 
       {/* TAB 1: COUPONS LIST */}
       {activeTab === 'coupons' && (
-        <div className="smp-card p-4 bg-white shadow-sm">
+        <div className="smp-card p-4 shadow-sm">
           <div className="d-flex justify-content-between align-items-center mb-3">
-            <h5 className="fw-bold brand-font mb-0">Active Coupon Codes</h5>
+            <h5 className="fw-bold brand-font mb-0 text-white">Active Coupon Codes</h5>
             <button
               onClick={() => setShowCouponModal(true)}
               className="btn btn-primary btn-sm rounded-pill px-3 fw-semibold"
@@ -245,7 +245,7 @@ const AdminOffers = () => {
           ) : (
             <div className="table-responsive">
               <table className="table table-hover align-middle small mb-0">
-                <thead className="table-light">
+                <thead>
                   <tr>
                     <th>Code</th>
                     <th>Title & Description</th>
@@ -262,7 +262,7 @@ const AdminOffers = () => {
                     <tr key={c._id}>
                       <td className="fw-bold font-monospace text-primary fs-6">{c.code}</td>
                       <td>
-                        <div className="fw-semibold text-dark">{c.title}</div>
+                        <div className="fw-semibold text-white">{c.title}</div>
                         <small className="text-muted">{c.description || 'No description'}</small>
                       </td>
                       <td><span className="badge bg-success-subtle text-success fs-6 fw-bold">{c.discountPercent}% OFF</span></td>
@@ -315,8 +315,8 @@ const AdminOffers = () => {
       {activeTab === 'broadcast' && (
         <div className="row g-4">
           <div className="col-lg-7">
-            <div className="smp-card p-4 bg-white shadow-sm">
-              <h5 className="fw-bold brand-font mb-3">Broadcast Promotional Offer via WhatsApp</h5>
+            <div className="smp-card p-4 shadow-sm">
+              <h5 className="fw-bold brand-font mb-3 text-white">Broadcast Promotional Offer via WhatsApp</h5>
               <p className="small text-muted mb-4">
                 Dispatches approved promotional message template strictly to customers who have provided affirmative WhatsApp consent.
               </p>
@@ -475,9 +475,9 @@ const AdminOffers = () => {
 
       {/* TAB 3: DISPATCH LOGS */}
       {activeTab === 'logs' && (
-        <div className="smp-card p-4 bg-white shadow-sm">
+        <div className="smp-card p-4 shadow-sm">
           <div className="d-flex justify-content-between align-items-center mb-3">
-            <h5 className="fw-bold brand-font mb-0">WhatsApp Delivery & Audit Logs</h5>
+            <h5 className="fw-bold brand-font mb-0 text-white">Message Delivery & Audit Logs (WhatsApp / SMS)</h5>
             <button onClick={fetchLogs} className="btn btn-outline-secondary btn-sm rounded-pill px-3">
               <i className="bi bi-arrow-repeat me-1"></i> Refresh Logs
             </button>
@@ -490,14 +490,15 @@ const AdminOffers = () => {
           ) : logs.length === 0 ? (
             <div className="text-center py-4 text-muted">
               <i className="bi bi-clock-history display-4 text-secondary mb-2 d-block"></i>
-              <h6>No WhatsApp messages logged yet.</h6>
+              <h6>No messages logged yet.</h6>
             </div>
           ) : (
             <div className="table-responsive">
               <table className="table table-hover align-middle small mb-0">
-                <thead className="table-light">
+                <thead>
                   <tr>
                     <th>Timestamp</th>
+                    <th>Channel</th>
                     <th>Recipient</th>
                     <th>Type</th>
                     <th>Template</th>
@@ -510,14 +511,27 @@ const AdminOffers = () => {
                     <tr key={log._id}>
                       <td className="text-muted">{new Date(log.sentAt || log.createdAt).toLocaleString('en-IN')}</td>
                       <td>
-                        <div className="fw-semibold text-dark">{log.recipientName}</div>
+                        {log.channel === 'SMS' ? (
+                          <span className="badge bg-info text-dark d-inline-flex align-items-center gap-1">
+                            <i className="bi bi-chat-dots-fill"></i> SMS
+                          </span>
+                        ) : (
+                          <span className="badge bg-success d-inline-flex align-items-center gap-1">
+                            <i className="bi bi-whatsapp"></i> WhatsApp
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="fw-semibold text-white">{log.recipientName}</div>
                         <small className="text-muted font-monospace">{log.recipientPhone}</small>
                       </td>
-                      <td><span className="badge bg-light text-dark border">{log.messageType}</span></td>
+                      <td><span className="badge bg-secondary border">{log.messageType}</span></td>
                       <td><code>{log.templateName}</code></td>
                       <td>
-                        {log.status === 'SENT' ? (
+                        {log.status === 'SENT' || log.status === 'WHATSAPP_SENT' ? (
                           <span className="badge bg-success">SENT</span>
+                        ) : log.status === 'SMS_SENT' ? (
+                          <span className="badge bg-info text-dark">SMS SENT</span>
                         ) : log.status === 'SIMULATED' ? (
                           <span className="badge bg-info text-dark">SIMULATED</span>
                         ) : log.status === 'OPTED_OUT' ? (
@@ -540,17 +554,17 @@ const AdminOffers = () => {
 
       {/* TAB 4: WHATSAPP SETTINGS */}
       {activeTab === 'settings' && (
-        <div className="smp-card p-4 bg-white shadow-sm" style={{ maxWidth: '750px' }}>
-          <h5 className="fw-bold brand-font mb-3">WhatsApp Business Cloud API Configuration</h5>
+        <div className="smp-card p-4 shadow-sm" style={{ maxWidth: '750px' }}>
+          <h5 className="fw-bold brand-font mb-3 text-white">WhatsApp & SMS Integration Configuration</h5>
           <p className="small text-muted mb-4">
-            Connect your Meta WhatsApp Business API credentials. When left blank, SMP operates in Sandbox Simulation mode, recording all dispatches cleanly with 100% audit trail.
+            Connect your Meta WhatsApp Business API credentials. When live gateway is disabled or credentials are unset, SMP automatically dispatches via integrated SMS fallback with 100% audit trail.
           </p>
 
           <form onSubmit={handleSaveSettings}>
-            <div className="p-3 bg-light rounded-3 mb-4 d-flex justify-content-between align-items-center border">
+            <div className="p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
               <div>
-                <h6 className="fw-bold mb-0">Enable Live WhatsApp Business API</h6>
-                <small className="text-muted">Toggle between Sandbox Simulation and Live Cloud API</small>
+                <h6 className="fw-bold mb-0 text-white">Enable Live WhatsApp Business API</h6>
+                <small className="text-muted">When off or failed, system routes notifications automatically via SMS Gateway</small>
               </div>
               <div className="form-check form-switch fs-5">
                 <input
@@ -596,7 +610,7 @@ const AdminOffers = () => {
               </div>
 
               <div className="col-12 mt-3">
-                <h6 className="fw-bold text-dark mb-2">Automated Event Triggers:</h6>
+                <h6 className="fw-bold text-white mb-2">Automated Event Triggers:</h6>
                 <div className="d-flex flex-column gap-2">
                   <div className="form-check">
                     <input
@@ -607,7 +621,7 @@ const AdminOffers = () => {
                       onChange={(e) => setWhatsappSettings({ ...whatsappSettings, notifyOnInvoice: e.target.checked })}
                     />
                     <label className="form-check-label small fw-semibold" htmlFor="notifyInvoiceCheck">
-                      Send Order & Invoice confirmation bill automatically after checkout / POS billing
+                      Send Order & Invoice confirmation bill automatically after checkout / POS billing (WhatsApp with SMS fallback)
                     </label>
                   </div>
                   <div className="form-check">
@@ -644,7 +658,7 @@ const AdminOffers = () => {
                 disabled={savingSettings}
                 className="btn btn-primary px-4 py-2 fw-semibold rounded-pill"
               >
-                {savingSettings ? 'Saving...' : 'Save WhatsApp Configuration'}
+                {savingSettings ? 'Saving...' : 'Save Configuration'}
               </button>
             </div>
           </form>
@@ -657,8 +671,8 @@ const AdminOffers = () => {
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content shadow-lg">
               <div className="modal-header">
-                <h5 className="modal-title fw-bold brand-font">Create New Coupon</h5>
-                <button type="button" className="btn-close" onClick={() => setShowCouponModal(false)}></button>
+                <h5 className="modal-title fw-bold brand-font text-white">Create New Coupon</h5>
+                <button type="button" className="btn-close btn-close-white" onClick={() => setShowCouponModal(false)}></button>
               </div>
               <form onSubmit={handleCreateCoupon}>
                 <div className="modal-body p-4">
@@ -733,7 +747,7 @@ const AdminOffers = () => {
                     </div>
                   </div>
                 </div>
-                <div className="modal-footer bg-light">
+                <div className="modal-footer">
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCouponModal(false)}>
                     Cancel
                   </button>

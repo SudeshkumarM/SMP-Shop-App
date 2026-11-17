@@ -27,11 +27,47 @@ async function runLoadTest() {
   const token = staffAuth.token;
   console.log(`✓ Staff Authenticated for Billing Test: ${staffAuth.user.name} (${staffAuth.user.staffId})`);
 
-  // Get current state of the Shirt product
-  const catalogRes = await fetch('http://localhost:5000/api/products').then(r => r.json());
-  const shirt = catalogRes.products.find(p => p.name.toLowerCase() === 'shirt') || catalogRes.products[0];
-  const initialStock = shirt.availableQuantity;
-  console.log(`✓ Target Product: "${shirt.name}" (Price: ₹${shirt.sellingPrice}, Initial Stock: ${initialStock})\n`);
+  // Get current state of product (or create one as Admin if catalog is clean)
+  let catalogRes = await fetch('http://localhost:5000/api/products').then(r => r.json());
+  let targetProduct = catalogRes.products?.[0];
+
+  if (!targetProduct) {
+    const adminAuth = await fetch('http://localhost:5000/api/auth/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'admin01', password: 'Password123' })
+    }).then(r => r.json());
+
+    const catRes = await fetch('http://localhost:5000/api/products/categories/list').then(r => r.json());
+    const categoryId = catRes.categories?.[0]?._id;
+
+    const createRes = await fetch('http://localhost:5000/api/products', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminAuth.token}`
+      },
+      body: JSON.stringify({
+        name: 'SMP Apparel Standard',
+        sku: 'SMP-APP-LOAD',
+        brand: 'SMP',
+        category: categoryId,
+        description: 'Load test inventory item',
+        costPrice: 250,
+        originalPrice: 800,
+        sellingPrice: 500,
+        gstPercent: 5,
+        availableQuantity: 500,
+        sizes: ['M', 'L', 'XL'],
+        colours: ['Navy Blue', 'Maroon']
+      })
+    }).then(r => r.json());
+
+    targetProduct = createRes.product;
+  }
+
+  const initialStock = targetProduct.availableQuantity;
+  console.log(`✓ Target Product: "${targetProduct.name}" (Price: ₹${targetProduct.sellingPrice}, Initial Stock: ${initialStock})\n`);
 
   // -------------------------------------------------------------
   // TEST SUITE 1: 1,000 Concurrent Catalog & Price Lookups
@@ -49,7 +85,7 @@ async function runLoadTest() {
     const batch = [];
     for (let j = 0; j < BATCH_SIZE && (i + j) < TOTAL_READ_REQUESTS; j++) {
       const qStart = Date.now();
-      const p = fetch(`http://localhost:5000/api/products?keyword=shirt&limit=1`)
+      const p = fetch(`http://localhost:5000/api/products?keyword=SMP&limit=1`)
         .then(res => {
           latencies.push(Date.now() - qStart);
           if (res.ok) successfulReads++;
@@ -102,10 +138,10 @@ async function runLoadTest() {
         customerPhone: `98000${String(b).padStart(5, '0')}`,
         paymentMethod: 'POS_CASH',
         items: [{
-          productId: shirt._id,
+          productId: targetProduct._id,
           quantity: 1,
-          unitPrice: shirt.sellingPrice,
-          gstPercent: shirt.gstPercent
+          unitPrice: targetProduct.sellingPrice,
+          gstPercent: targetProduct.gstPercent
         }]
       })
     })
@@ -128,7 +164,7 @@ async function runLoadTest() {
   await Promise.all(billPromises);
 
   // Check product stock after concurrent bills
-  const finalProductRes = await fetch(`http://localhost:5000/api/products/${shirt._id}`).then(r => r.json());
+  const finalProductRes = await fetch(`http://localhost:5000/api/products/${targetProduct._id}`).then(r => r.json());
   const finalStock = finalProductRes.product.availableQuantity;
   const actualDeducted = initialStock - finalStock;
 

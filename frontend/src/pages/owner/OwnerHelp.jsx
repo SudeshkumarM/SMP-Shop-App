@@ -15,13 +15,13 @@ const OwnerHelp = () => {
 
   return (
     <div className="fade-in">
-      <div className="smp-card p-4 p-md-5 mb-4 bg-white shadow-sm">
+      <div className="smp-card p-4 p-md-5 mb-4 shadow-sm">
         <div className="d-flex align-items-center gap-3 mb-4">
-          <div className="p-3 rounded-4 shadow-sm" style={{ backgroundColor: '#7c3aed', color: '#fff' }}>
+          <div className="p-3 rounded-4 shadow-sm" style={{ backgroundColor: 'var(--smp-royal-blue)', color: '#fff' }}>
             <i className="bi bi-crown fs-3"></i>
           </div>
           <div>
-            <h2 className="fw-bold brand-font mb-1">Master Owner Governance Manual & Help</h2>
+            <h2 className="fw-bold brand-font mb-1 text-white">Master Owner Governance Manual & Help</h2>
             <p className="text-muted mb-0">Executive directives, mathematical P&L models, investment accounting & enterprise scalability</p>
           </div>
         </div>
@@ -36,11 +36,11 @@ const OwnerHelp = () => {
                   type="button"
                   onClick={() => setActiveTopic(t.id)}
                   className={`list-group-item list-group-item-action d-flex align-items-center gap-2 py-3 ${
-                    activeTopic === t.id ? 'active text-white fw-semibold' : 'text-dark'
+                    activeTopic === t.id ? 'active text-white fw-semibold' : 'text-white'
                   }`}
                   style={{
-                    backgroundColor: activeTopic === t.id ? '#7c3aed' : '',
-                    borderColor: activeTopic === t.id ? '#7c3aed' : ''
+                    backgroundColor: activeTopic === t.id ? 'var(--smp-royal-blue)' : 'var(--smp-dark-blue)',
+                    borderColor: 'var(--smp-border)'
                   }}
                 >
                   <i className={`bi ${t.icon}`}></i>
@@ -49,9 +49,9 @@ const OwnerHelp = () => {
               ))}
             </div>
 
-            <div className="card mt-4 border-0 bg-light p-3 text-center rounded-3">
-              <i className="bi bi-shield-lock text-purple fs-2 mb-2" style={{ color: '#7c3aed' }}></i>
-              <div className="fw-bold small">Enterprise Direct Support</div>
+            <div className="card mt-4 border-0 p-3 text-center rounded-3" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
+              <i className="bi bi-shield-lock fs-2 mb-2" style={{ color: 'var(--smp-royal-blue)' }}></i>
+              <div className="fw-bold small text-white">Enterprise Direct Support</div>
               <small className="text-muted">owner-support@smp.com</small>
               <div className="mt-2 text-muted" style={{ fontSize: '0.72rem' }}>Priority 24/7 Tech Lead Hotline</div>
             </div>
@@ -59,10 +59,10 @@ const OwnerHelp = () => {
 
           {/* Detailed Content Pane */}
           <div className="col-lg-9 col-md-8">
-            <div className="p-4 bg-light rounded-4 border">
+            <div className="p-4 rounded-4 border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
               {activeTopic === 'governance' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">1. Corporate Multi-Store Governance</h4>
+                  <h4 className="fw-bold text-white mb-3">1. Corporate Multi-Store Governance</h4>
                   <p className="text-secondary leading-relaxed">
                     The Owner Console provides master oversight across all retail stores, branches, and commercial entities within the <strong>SMP</strong> enterprise. As the Master Owner, you have unrestricted global authority to review sales, audits, inventory reserves, and financial metrics across every subsidiary shop.
                   </p>
@@ -70,7 +70,7 @@ const OwnerHelp = () => {
                     <i className="bi bi-info-circle-fill me-2"></i>
                     <strong>Shop Isolation Guarantee:</strong> While each shop's Admin and Staff can only view their own isolated branch transactions, the Owner Console aggregates data across all locations into unified consolidated reports.
                   </div>
-                  <h6 className="fw-bold text-dark mt-4">Key Responsibilities:</h6>
+                  <h6 className="fw-bold text-white mt-4">Key Responsibilities:</h6>
                   <ul className="text-secondary small">
                     <li>Authorizing new shop entities (e.g. expanding into Footwear, Electronics, Groceries).</li>
                     <li>Conducting monthly fiscal reconciliations and monitoring return on capital.</li>
@@ -81,11 +81,11 @@ const OwnerHelp = () => {
 
               {activeTopic === 'pnl' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">2. Mathematical Profit & Loss Engine</h4>
+                  <h4 className="fw-bold text-white mb-3">2. Mathematical Profit & Loss Engine</h4>
                   <p className="text-secondary leading-relaxed">
                     SMP implements true mathematical financial auditing. Unlike basic websites that confuse gross revenue with profit, SMP strictly separates:
                   </p>
-                  <div className="p-3 bg-white rounded-3 border mb-3">
+                  <div className="p-3 rounded-3 border mb-3" style={{ backgroundColor: 'var(--smp-card-bg)' }}>
                     <div className="fw-bold text-primary mb-2 font-monospace">Mathematical Formulas:</div>
                     <ul className="mb-0 small text-secondary">
                       <li><strong>Gross Profit</strong> = Total Revenue - Total Purchase Cost of Goods Sold (COGS)</li>
@@ -94,30 +94,30 @@ const OwnerHelp = () => {
                     </ul>
                   </div>
                   <p className="text-secondary small">
-                    For example, if 100 Shirts (Cost: ₹250, Selling: ₹500) are sold:
+                    For example, if 100 Units of apparel (Cost: ₹500, Selling: ₹1,000) are sold:
                     <br />
-                    • Revenue = ₹50,000 | Purchase Cost = ₹25,000 | Gross Profit = ₹25,000.
+                    • Revenue = ₹100,000 | Purchase Cost = ₹50,000 | Gross Profit = ₹50,000.
                     <br />
-                    • If Store Overheads = ₹15,000, Net Profit = ₹10,000.
+                    • If Store Overheads = ₹20,000, Net Profit = ₹30,000.
                   </p>
                 </div>
               )}
 
               {activeTopic === 'investments' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">3. Capital Investment Tracking</h4>
+                  <h4 className="fw-bold text-white mb-3">3. Capital Investment Tracking</h4>
                   <p className="text-secondary leading-relaxed">
                     All financial injections into SMP are tracked in the <code>Investments</code> ledger. This includes:
                   </p>
                   <div className="row g-3">
                     <div className="col-md-6">
-                      <div className="p-3 bg-white rounded-3 border h-100">
+                      <div className="p-3 rounded-3 border h-100" style={{ backgroundColor: 'var(--smp-card-bg)' }}>
                         <div className="fw-bold text-success mb-1">Initial Capital</div>
                         <p className="small text-muted mb-0">Initial lease deposit, boutique interior design, POS hardware terminals, and initial brand inventory.</p>
                       </div>
                     </div>
                     <div className="col-md-6">
-                      <div className="p-3 bg-white rounded-3 border h-100">
+                      <div className="p-3 rounded-3 border h-100" style={{ backgroundColor: 'var(--smp-card-bg)' }}>
                         <div className="fw-bold text-primary mb-1">Inventory Capital</div>
                         <p className="small text-muted mb-0">Bulk supplier garment purchases, textile procurement, and stock replenishment.</p>
                       </div>
@@ -128,7 +128,7 @@ const OwnerHelp = () => {
 
               {activeTopic === 'gst' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">4. GST Audits & Tax Remittance</h4>
+                  <h4 className="fw-bold text-white mb-3">4. GST Audits & Tax Remittance</h4>
                   <p className="text-secondary leading-relaxed">
                     Every invoice generated in the platform explicitly accounts for 5% Apparel GST, split equally into <strong>CGST (2.5%)</strong> and <strong>SGST (2.5%)</strong>.
                   </p>
@@ -140,9 +140,9 @@ const OwnerHelp = () => {
 
               {activeTopic === 'scalability' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">5. Shopping Mall Expansion Roadmap</h4>
+                  <h4 className="fw-bold text-white mb-3">5. Shopping Mall Expansion Roadmap</h4>
                   <p className="text-secondary leading-relaxed">
-                    While initially configured with <strong>ONLY ONE flagship product ("Shirt" @ ₹500)</strong> for precision testing and validation, the SMP architecture is natively multitenant.
+                    The SMP architecture is natively multitenant and engineered for limitless scalability across multi-store malls and retail chains.
                   </p>
                   <p className="text-secondary small">
                     Every product, bill, inventory unit, and expense is indexed with <code>shopId</code> and <code>branchId</code>. Expanding into a complete 50-store shopping mall requires simply adding new shop records via the Owner Store Manager.
@@ -152,7 +152,7 @@ const OwnerHelp = () => {
 
               {activeTopic === 'security' && (
                 <div>
-                  <h4 className="fw-bold text-dark mb-3">6. Data Isolation & Role Guards</h4>
+                  <h4 className="fw-bold text-white mb-3">6. Data Isolation & Role Guards</h4>
                   <p className="text-secondary leading-relaxed">
                     Security is enforced at both the API routing layer (JWT verification + RBAC authorization) and frontend routing layer (<code>ProtectedRoute</code>):
                   </p>

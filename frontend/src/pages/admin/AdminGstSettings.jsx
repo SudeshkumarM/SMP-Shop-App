@@ -72,11 +72,11 @@ const AdminGstSettings = () => {
           {/* 1. Tax Collection KPI Cards */}
           <div className="row g-3 mb-4">
             <div className="col-md-3 col-6">
-              <div className="smp-card p-3 bg-white shadow-sm border-start border-4 border-primary">
+              <div className="smp-card p-3 shadow-sm border-start border-4 border-primary">
                 <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: '0.75rem' }}>
                   Total GST Collected
                 </small>
-                <h4 className="fw-bold text-primary mb-0 mt-1">
+                <h4 className="fw-bold text-white mb-0 mt-1">
                   ₹{Number(stats.totalGstCollected || 0).toFixed(2)}
                 </h4>
                 <small className="text-muted">Across all valid invoices</small>
@@ -84,31 +84,31 @@ const AdminGstSettings = () => {
             </div>
 
             <div className="col-md-3 col-6">
-              <div className="smp-card p-3 bg-white shadow-sm border-start border-4 border-info">
+              <div className="smp-card p-3 shadow-sm border-start border-4 border-info">
                 <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: '0.75rem' }}>
                   CGST (Central Tax)
                 </small>
-                <h4 className="fw-bold text-dark mb-0 mt-1">
+                <h4 className="fw-bold text-white mb-0 mt-1">
                   ₹{Number(stats.totalCgst || 0).toFixed(2)}
                 </h4>
-                <small className="text-muted">2.5% on apparel sales</small>
+                <small className="text-muted">2.5% on sales</small>
               </div>
             </div>
 
             <div className="col-md-3 col-6">
-              <div className="smp-card p-3 bg-white shadow-sm border-start border-4 border-warning">
+              <div className="smp-card p-3 shadow-sm border-start border-4 border-warning">
                 <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: '0.75rem' }}>
                   SGST (State Tax)
                 </small>
-                <h4 className="fw-bold text-dark mb-0 mt-1">
+                <h4 className="fw-bold text-white mb-0 mt-1">
                   ₹{Number(stats.totalSgst || 0).toFixed(2)}
                 </h4>
-                <small className="text-muted">2.5% on apparel sales</small>
+                <small className="text-muted">2.5% on sales</small>
               </div>
             </div>
 
             <div className="col-md-3 col-6">
-              <div className="smp-card p-3 bg-white shadow-sm border-start border-4 border-success">
+              <div className="smp-card p-3 shadow-sm border-start border-4 border-success">
                 <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: '0.75rem' }}>
                   Taxable Revenue
                 </small>
@@ -123,12 +123,12 @@ const AdminGstSettings = () => {
           {/* 2. Configuration Form & Compliance Guide */}
           <div className="row g-4">
             <div className="col-lg-7">
-              <div className="smp-card p-4 bg-white shadow-sm">
-                <h5 className="fw-bold brand-font mb-3">Tax Configuration</h5>
+              <div className="smp-card p-4 shadow-sm">
+                <h5 className="fw-bold brand-font mb-3 text-white">Tax Configuration</h5>
                 <form onSubmit={handleSave}>
-                  <div className="p-3 bg-light rounded-3 mb-4 d-flex justify-content-between align-items-center border">
+                  <div className="p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
                     <div>
-                      <h6 className="fw-bold mb-0">Enable GST Invoicing</h6>
+                      <h6 className="fw-bold mb-0 text-white">Enable GST Invoicing</h6>
                       <small className="text-muted">Automatically calculate CGST and SGST on POS and Online bills</small>
                     </div>
                     <div className="form-check form-switch fs-5">
@@ -156,9 +156,9 @@ const AdminGstSettings = () => {
                           value={settings.defaultGstPercent}
                           onChange={(e) => setSettings({ ...settings, defaultGstPercent: Number(e.target.value) })}
                         />
-                        <span className="input-group-text bg-light">%</span>
+                        <span className="input-group-text">%</span>
                       </div>
-                      <small className="text-muted">Standard rate: 5% for Apparel & Shirts</small>
+                      <small className="text-muted">Standard rate: 5% for Apparel & Garments</small>
                     </div>
 
                     <div className="col-md-6">
@@ -215,19 +215,18 @@ const AdminGstSettings = () => {
 
             {/* Statutory Guide Card */}
             <div className="col-lg-5">
-              <div className="smp-card p-4 bg-white shadow-sm border-start border-4 border-warning">
-                <h5 className="fw-bold brand-font mb-3 d-flex align-items-center gap-2">
+              <div className="smp-card p-4 shadow-sm border-start border-4 border-warning">
+                <h5 className="fw-bold brand-font mb-3 d-flex align-items-center gap-2 text-white">
                   <i className="bi bi-info-circle text-warning"></i> Statutory Apparel Tax Math
                 </h5>
-                <div className="p-3 bg-light rounded-3 mb-3 border">
-                  <div className="fw-bold text-dark mb-1">Standard Calculation Breakdown:</div>
-                  <ul className="small text-secondary ps-3 mb-0">
-                    <li>Product: <strong>Shirt</strong></li>
-                    <li>Base Selling Price: <strong>₹500.00</strong></li>
+                <div className="p-3 rounded-3 mb-3 border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
+                  <div className="fw-bold text-white mb-1">Standard Calculation Breakdown:</div>
+                  <ul className="small ps-3 mb-0" style={{ color: 'var(--smp-text-secondary)' }}>
+                    <li>Sample Product Base Selling Price: <strong>₹1,000.00</strong></li>
                     <li>GST Rate: <strong>5.00%</strong></li>
-                    <li>CGST (2.50%): <strong>₹12.50</strong></li>
-                    <li>SGST (2.50%): <strong>₹12.50</strong></li>
-                    <li className="fw-bold text-primary mt-1">Final Consumer Bill: <strong>₹525.00</strong></li>
+                    <li>CGST (2.50%): <strong>₹25.00</strong></li>
+                    <li>SGST (2.50%): <strong>₹25.00</strong></li>
+                    <li className="fw-bold text-primary mt-1">Final Consumer Bill: <strong>₹1,050.00</strong></li>
                   </ul>
                 </div>
                 <p className="small text-muted mb-0">

@@ -62,20 +62,46 @@ async function runE2ETests() {
   tokens.owner = loginOwner.token;
   console.log(`✓ Owner Login via Username: "${loginOwner.user.username}" (Master Authority) -> ${loginOwner.welcomeMessage}\n`);
 
-  // 2. Single Product Catalog Verification
-  console.log('--- Phase 2: Single Product Verification ("Shirt" @ ₹500) ---');
-  const productsRes = await fetch('http://localhost:5000/api/products').then(r => r.json());
-  console.log(`✓ Active Product Count: ${productsRes.count} (Strict single product requirement)`);
-  const shirt = productsRes.products[0];
-  console.log(`✓ Product Name:       "${shirt.name}"`);
-  console.log(`✓ Selling Price:      ₹${shirt.sellingPrice} (Must be ₹500)`);
-  console.log(`✓ GST Rate:           ${shirt.gstPercent}%`);
-  console.log(`✓ Final Price:        ₹${shirt.finalPrice}`);
-  console.log(`✓ Available Stock:    ${shirt.availableQuantity} units\n`);
-
-  if (shirt.sellingPrice !== 500) {
-    throw new Error(`Product price mismatch: expected 500, got ${shirt.sellingPrice}`);
+  // 2. Initial Clean State & Admin Product Creation
+  console.log('--- Phase 2: Catalog Clean State & Admin Dynamic Product Addition ---');
+  const initialProductsRes = await fetch('http://localhost:5000/api/products').then(r => r.json());
+  console.log(`✓ Initial Product Count: ${initialProductsRes.count} (Clean catalog, Shirt completely removed, zero demo products)`);
+  if (initialProductsRes.count !== 0) {
+    throw new Error(`Expected clean catalog with 0 initial products, found ${initialProductsRes.count}`);
   }
+
+  // Admin creates a new product
+  const catRes = await fetch('http://localhost:5000/api/products/categories/list').then(r => r.json());
+  const categoryId = catRes.categories?.[0]?._id;
+
+  const createProdRes = await fetch('http://localhost:5000/api/products', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.admin}`
+    },
+    body: JSON.stringify({
+      name: 'SMP Apparel Standard',
+      sku: 'SMP-APP-001',
+      barcode: '8901234567890',
+      brand: 'SMP',
+      category: categoryId,
+      description: 'Premium quality apparel for all seasons.',
+      costPrice: 250,
+      originalPrice: 800,
+      sellingPrice: 500,
+      gstPercent: 5,
+      availableQuantity: 100,
+      lowStockThreshold: 10,
+      sizes: ['M', 'L', 'XL'],
+      colours: ['Navy Blue', 'Maroon', 'Black'],
+      images: ['https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=600&q=80']
+    })
+  }).then(r => r.json());
+
+  if (!createProdRes.success) throw new Error(`Product creation failed: ${createProdRes.message}`);
+  const testProduct = createProdRes.product;
+  console.log(`✓ Admin Created Product: "${testProduct.name}" (SKU: ${testProduct.sku}, Selling: ₹${testProduct.sellingPrice}, Stock: ${testProduct.availableQuantity})\n`);
 
   // 3. Customer Cart Flow
   console.log('--- Phase 3: Customer Cart Operations ---');
@@ -86,17 +112,41 @@ async function runE2ETests() {
       'Authorization': `Bearer ${tokens.customer}`
     },
     body: JSON.stringify({
-      productId: shirt._id,
+      productId: testProduct._id,
       quantity: 1,
       size: 'L',
-      colour: 'Classic White'
+      colour: 'Navy Blue'
     })
   }).then(r => r.json());
   console.log(`✓ Cart Add: Subtotal = ₹${addToCartRes.cart.subtotal}, GST = ₹${addToCartRes.cart.gstAmount}, Total = ₹${addToCartRes.cart.grandTotal}\n`);
 
-  // 4. Staff POS Billing & Atomic Stock Decrement
-  console.log('--- Phase 4: Staff High-Speed POS Billing ---');
-  const initialStock = shirt.availableQuantity;
+  // 4. Staff POS Billing & UPI QR Code Payment Verification
+  console.log('--- Phase 4: Staff High-Speed POS Billing & UPI QR Code Verification ---');
+  const initialStock = testProduct.availableQuantity;
+
+  // A. QR Payment Attempt without UTR should fail
+  const qrFail = await fetch('http://localhost:5000/api/billing/create-bill', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.staff}`
+    },
+    body: JSON.stringify({
+      customerName: 'Karthik Raja',
+      customerPhone: '9840112233',
+      paymentMethod: 'POS_UPI_QR',
+      items: [{
+        productId: testProduct._id,
+        quantity: 2,
+        unitPrice: 500,
+        gstPercent: 5
+      }]
+    })
+  }).then(r => r.json());
+  if (qrFail.success) throw new Error('POS_UPI_QR without UTR should fail');
+  console.log(`✓ Guard Verified: QR payment blocked without verified UTR: "${qrFail.message}"`);
+
+  // B. Verified QR Payment with UTR
   const billRes = await fetch('http://localhost:5000/api/billing/create-bill', {
     method: 'POST',
     headers: {
@@ -106,12 +156,13 @@ async function runE2ETests() {
     body: JSON.stringify({
       customerName: 'Karthik Raja',
       customerPhone: '9840112233',
-      paymentMethod: 'POS_CASH',
+      paymentMethod: 'POS_UPI_QR',
+      transactionRef: 'UTR987654321012',
       items: [{
-        productId: shirt._id,
+        productId: testProduct._id,
         quantity: 2,
         size: 'L',
-        colour: 'Classic White',
+        colour: 'Navy Blue',
         unitPrice: 500,
         gstPercent: 5
       }]
@@ -119,10 +170,34 @@ async function runE2ETests() {
   }).then(r => r.json());
 
   if (!billRes.success) throw new Error(`Bill creation failed: ${billRes.message}`);
-  console.log(`✓ Bill Generated: #${billRes.invoice.invoiceNumber}, Grand Total: ₹${billRes.invoice.grandTotal}`);
+  console.log(`✓ Bill Generated with Verified QR Payment: #${billRes.invoice.invoiceNumber}, Grand Total: ₹${billRes.invoice.grandTotal}, Method: ${billRes.invoice.paymentMethod}`);
+  console.log(`✓ Notification Delivery Status: "${billRes.deliveryStatus}" (WhatsApp / SMS Fallback)`);
+
+  // C. Duplicate UTR check
+  const dupUtrRes = await fetch('http://localhost:5000/api/billing/create-bill', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.staff}`
+    },
+    body: JSON.stringify({
+      customerName: 'Second Customer',
+      customerPhone: '9840112244',
+      paymentMethod: 'POS_UPI_QR',
+      transactionRef: 'UTR987654321012',
+      items: [{
+        productId: testProduct._id,
+        quantity: 1,
+        unitPrice: 500,
+        gstPercent: 5
+      }]
+    })
+  }).then(r => r.json());
+  if (dupUtrRes.success) throw new Error('Duplicate UTR should be rejected');
+  console.log(`✓ Duplicate UTR Guard Verified: "${dupUtrRes.message}"`);
 
   // Verify stock auto-deduction
-  const postBillProduct = await fetch(`http://localhost:5000/api/products/${shirt._id}`).then(r => r.json());
+  const postBillProduct = await fetch(`http://localhost:5000/api/products/${testProduct._id}`).then(r => r.json());
   console.log(`✓ Atomic Stock Deduction: Stock went from ${initialStock} to ${postBillProduct.product.availableQuantity} (Deducted 2)\n`);
 
   // 5. Bill Revision & Audit Log Test (Admin/Staff Edit Bill)
@@ -135,12 +210,12 @@ async function runE2ETests() {
     },
     body: JSON.stringify({
       items: [{
-        productId: shirt._id,
+        productId: testProduct._id,
         quantity: 1, // Adjusted from 2 to 1
         unitPrice: 500,
         gstPercent: 5
       }],
-      reason: 'Customer returned 1 Shirt at billing counter'
+      reason: 'Customer returned 1 item at billing counter'
     })
   }).then(r => r.json());
 

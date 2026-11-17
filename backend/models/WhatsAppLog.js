@@ -20,6 +20,11 @@ const whatsAppLogSchema = new mongoose.Schema({
     enum: ['OFFER', 'COUPON', 'INVOICE', 'TRANSACTIONAL'],
     required: true
   },
+  channel: {
+    type: String,
+    enum: ['WHATSAPP', 'SMS'],
+    default: 'WHATSAPP'
+  },
   templateName: {
     type: String,
     default: 'general_notice'
@@ -30,7 +35,7 @@ const whatsAppLogSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['SENT', 'SIMULATED', 'FAILED', 'OPTED_OUT', 'SKIPPED'],
+    enum: ['SENT', 'SIMULATED', 'FAILED', 'OPTED_OUT', 'SKIPPED', 'WHATSAPP_SENT', 'SMS_SENT'],
     required: true,
     default: 'SENT'
   },

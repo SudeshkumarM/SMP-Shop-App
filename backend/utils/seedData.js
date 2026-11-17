@@ -66,7 +66,7 @@ const seedAll = async () => {
       shopCode: 'SMP',
       name: 'SMP Elite Fashions',
       category: 'Dress & Apparel',
-      description: 'SMP Retail & E-Commerce platform initially tailored for quality shirts & apparel.',
+      description: 'SMP Retail & E-Commerce platform for premium clothing & multi-category retail.',
       logo: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=600&q=80',
       gstNumber: '33AAAAA0000A1Z5',
       contactEmail: 'contact@smp.com',
@@ -227,96 +227,29 @@ const seedAll = async () => {
       }]
     });
 
-    console.log('[Seed] 5. Creating Single Category & ONLY ONE Product (Shirt @ ₹500)...');
+    console.log('[Seed] 5. Creating Category (Clothing) with ZERO Initial Products...');
 
-    // 7. ONLY ONE Category per requirements: "1 Category (Clothing)"
-    const singleCategory = await Category.create({
+    // 7. Initial Category (Clothing) - Ready for Admin/Owner to add products
+    await Category.create({
       name: 'Clothing',
       slug: 'clothing',
-      description: 'Quality retail garments and everyday essential shirts.',
-      image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80',
+      description: 'Apparel & garment collections curated by SMP store managers.',
+      image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80',
       shopId: dressShop._id,
       displayOrder: 1,
       isActive: true
     });
 
-    // 8. ONLY ONE Product per requirements: "Initially create ONLY ONE PRODUCT. Product Name: Shirt, Selling Price: ₹500"
-    const singleShirt = await Product.create({
-      name: 'Shirt',
-      sku: 'SMP-SHIRT-001',
-      barcode: '890123450001',
-      brand: 'SMP Fashions',
-      category: singleCategory._id,
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      description: 'Premium Cotton Shirt tailored from breathable, lightweight fabric with regular collar and button-down front. Perfect for formal and casual occasions.',
-      costPrice: 250,
-      originalPrice: 600,
-      sellingPrice: 500, // Exactly ₹500 per requirements
-      discountPercent: 17, // ~₹100 discount off ₹600 MRP
-      gstPercent: 5,
-      finalPrice: 525, // ₹500 + 5% GST = ₹525
-      availableQuantity: 150,
-      lowStockThreshold: 10,
-      images: [
-        'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80',
-        'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?auto=format&fit=crop&w=800&q=80'
-      ],
-      sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-      colours: ['Classic White', 'Sky Blue', 'Navy Blue', 'Charcoal Grey'],
-      rating: 4.8,
-      numReviews: 24,
-      isActive: true,
-      isFeatured: true,
-      isTrending: true,
-      tags: ['shirt', 'cotton', 'formal', 'casual', 'men']
-    });
-
-    // 9. Create Supplier & Inventory Record for Shirt
-    const supplier = await Supplier.create({
-      companyName: 'Chennimalai Weaving Mills',
-      contactPerson: 'M. Senthil',
-      email: 'senthil@chennimalaimills.com',
-      phone: '9842112233',
-      address: {
-        street: 'Weavers Industrial Estate',
-        city: 'Erode',
-        state: 'Tamil Nadu',
-        pincode: '638051'
-      },
-      gstNumber: '33AAACM1122D1Z8',
-      shopId: dressShop._id
-    });
-
-    await Inventory.create({
-      productId: singleShirt._id,
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      currentStock: 150,
-      reservedStock: 0,
-      reorderPoint: 10,
-      stockLogs: [{
-        type: 'PURCHASE',
-        quantity: 150,
-        previousStock: 0,
-        newStock: 150,
-        costPricePerUnit: 250,
-        supplier: supplier._id,
-        notes: 'Initial Stock Inward - Cotton Shirts',
-        performedBy: adminUser._id
-      }]
-    });
-
     console.log('\n=============================================================');
     console.log('  🎉 DATABASE SEEDING COMPLETED WITH CLEAN PRODUCTION DATA!');
     console.log('=============================================================');
-    console.log('  ▸ Initial Product:  ONLY ONE Product -> "Shirt" @ ₹500');
+    console.log('  ▸ Initial Products: 0 Products (Clean catalog ready for Admin/Owner additions)');
     console.log('  ▸ Initial Category: "Clothing"');
     console.log('  ▸ Owner:            owner@smp.com / kumar / Password123');
     console.log('  ▸ Admin:            admin@smp.com / admin01 / Password123');
     console.log('  ▸ Staff:            staff@smp.com / kumar01 / Password123 (Can Edit Bills)');
     console.log('  ▸ Customer:         customer@smp.com / kumar_customer / Password123');
-    console.log('  ▸ Fake Data:        0 Fake Orders, 0 Fake Bills, 0 Fake Investments, 0 Fake Expenses');
+    console.log('  ▸ Product Add:      Admin & Owner can add new products anytime');
     console.log('=============================================================\n');
 
     process.exit(0);

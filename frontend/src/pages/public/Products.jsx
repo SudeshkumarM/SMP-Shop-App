@@ -238,12 +238,21 @@ const Products = () => {
               <p className="mt-2 text-muted small">Loading apparel collection...</p>
             </div>
           ) : products.length === 0 ? (
-            <div className="smp-card p-5 text-center">
-              <i className="bi bi-search text-muted display-4 mb-3"></i>
-              <h4>No products matched your criteria</h4>
-              <p className="text-muted small">Try adjusting your filters, searching with different terms, or resetting filters.</p>
-              <button onClick={handleClearFilters} className="btn btn-primary rounded-pill px-4">
-                Reset All Filters
+            <div className="smp-card p-5 text-center" style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}>
+              <i className="bi bi-box-seam display-4 mb-3" style={{ color: '#3b82f6' }}></i>
+              <h4 className="fw-bold text-white mb-2">No Products Currently in Catalog</h4>
+              <p className="small mb-4 mx-auto" style={{ color: '#B8C5D6', maxWidth: '420px' }}>
+                New seasonal apparel collections are arriving soon. Store administrators can add new products in Product Management.
+              </p>
+              <button
+                onClick={handleClearFilters}
+                className="btn btn-primary rounded-pill px-4 py-2 fw-semibold"
+                style={{
+                  background: 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
+                  border: '1px solid #60a5fa'
+                }}
+              >
+                Reset Search Filters
               </button>
             </div>
           ) : (

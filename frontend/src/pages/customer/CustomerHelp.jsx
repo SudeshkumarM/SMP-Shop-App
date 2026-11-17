@@ -134,7 +134,7 @@ const CustomerHelp = () => {
                   <h4 className="fw-bold text-primary mb-3"><i className="bi bi-bag-check me-2"></i>Shopping & Product Guide</h4>
                   <p className="text-muted">SMP offers high-quality retail garments with transparent, server-verified pricing.</p>
                   <ul className="list-unstyled text-muted small lh-lg">
-                    <li><i className="bi bi-check-circle-fill text-success me-2"></i><strong>Single Shirt Collection:</strong> Our flagship product is the Premium Cotton Shirt available at ₹500.</li>
+                    <li><i className="bi bi-check-circle-fill text-success me-2"></i><strong>Curated Collections:</strong> Discover high-grade apparel across modern categories curated directly by store admins.</li>
                     <li><i className="bi bi-check-circle-fill text-success me-2"></i><strong>Size Selection:</strong> Available in Standard Indian sizing: S, M, L, XL, XXL.</li>
                     <li><i className="bi bi-check-circle-fill text-success me-2"></i><strong>Transparent GST:</strong> Product prices clearly indicate the GST component (5%) and the exact Final Payable amount.</li>
                     <li><i className="bi bi-check-circle-fill text-success me-2"></i><strong>Real-time Stock:</strong> The available inventory updates live, preventing overselling.</li>

@@ -91,7 +91,7 @@ const orderSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['COD', 'ONLINE', 'POS_CASH', 'POS_CARD', 'POS_UPI'],
+    enum: ['COD', 'ONLINE', 'POS_CASH', 'POS_CARD', 'POS_UPI', 'POS_UPI_QR'],
     required: true,
     default: 'COD'
   },
@@ -99,6 +99,10 @@ const orderSchema = new mongoose.Schema({
     type: String,
     enum: ['PENDING', 'PAID', 'FAILED', 'REFUNDED'],
     default: 'PENDING'
+  },
+  paymentDetails: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
   orderStatus: {
     type: String,

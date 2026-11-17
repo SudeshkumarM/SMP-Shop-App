@@ -1,6 +1,7 @@
 const WhatsAppLog = require('../models/WhatsAppLog');
 const Customer = require('../models/Customer');
 const Shop = require('../models/Shop');
+const SmsService = require('./smsService');
 
 /**
  * Service to manage WhatsApp Business Cloud API and notifications
@@ -246,6 +247,131 @@ class WhatsAppService {
       `We hope to see you again soon!\n\n` +
       `SMP Team.`
     );
+  }
+
+  /**
+   * Send Bill Notification with official WhatsApp attempt and automatic SMS fallback
+   * Ensures no duplicate notifications and confirmed delivery status reporting.
+   */
+  static async sendBillNotificationWithFallback({
+    phone,
+    customerName = 'Customer',
+    invoiceNumber,
+    grandTotal,
+    itemCount = 1,
+    paymentMethod = 'POS',
+    shopId = null,
+    sentBy = null,
+    customerId = null
+  }) {
+    if (!phone) {
+      return { success: false, deliveryStatus: 'Failed', reason: 'No mobile number provided' };
+    }
+
+    const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) {
+      return { success: false, deliveryStatus: 'Failed', reason: 'Invalid 10-digit mobile number' };
+    }
+
+    const content = this.buildInvoiceMessage({ customerName, invoiceNumber, grandTotal, itemCount, paymentMethod });
+
+    // Step 1: Check WhatsApp availability & attempt delivery
+    let whatsappResult = null;
+    let whatsappSucceeded = false;
+
+    try {
+      whatsappResult = await this.sendMessage({
+        phone: cleanPhone,
+        customerName,
+        customerId,
+        messageType: 'INVOICE',
+        templateName: 'invoice_receipt',
+        content,
+        shopId,
+        sentBy,
+        requiresConsent: false
+      });
+
+      if (whatsappResult && (whatsappResult.status === 'SENT' || whatsappResult.status === 'SIMULATED')) {
+        whatsappSucceeded = true;
+      }
+    } catch (wErr) {
+      console.warn('[WhatsAppService] WhatsApp attempt error:', wErr.message);
+      whatsappSucceeded = false;
+    }
+
+    if (whatsappSucceeded) {
+      return {
+        success: true,
+        channel: 'WHATSAPP',
+        deliveryStatus: 'WhatsApp Sent',
+        logId: whatsappResult?.logId,
+        message: 'Bill notification delivered via WhatsApp'
+      };
+    }
+
+    // Step 2: Fallback to SMS if WhatsApp failed or was unavailable
+    console.log(`[NotificationService] WhatsApp unavailable for +91 ${cleanPhone}. Triggering automatic SMS fallback...`);
+    try {
+      const smsResult = await SmsService.sendBillSms({
+        phone: cleanPhone,
+        customerName,
+        invoiceNumber,
+        amount: grandTotal
+      });
+
+      if (smsResult && smsResult.success) {
+        const log = await WhatsAppLog.create({
+          recipientPhone: cleanPhone,
+          recipientName: customerName,
+          customerId,
+          messageType: 'INVOICE',
+          channel: 'SMS',
+          templateName: 'sms_invoice_fallback',
+          content: `SMP Retail: Dear ${customerName}, your bill for Invoice #${invoiceNumber} of Rs. ${Number(grandTotal).toFixed(2)} is generated. Thank you for shopping with SMP!`,
+          status: 'SMS_SENT',
+          providerResponse: smsResult.response || { provider: smsResult.provider, simulated: smsResult.provider === 'SIMULATED' },
+          sentBy,
+          sentAt: new Date()
+        });
+
+        return {
+          success: true,
+          channel: 'SMS',
+          deliveryStatus: 'SMS Sent',
+          logId: log._id,
+          message: 'Bill notification delivered via SMS'
+        };
+      } else {
+        const log = await WhatsAppLog.create({
+          recipientPhone: cleanPhone,
+          recipientName: customerName,
+          customerId,
+          messageType: 'INVOICE',
+          channel: 'SMS',
+          templateName: 'sms_invoice_fallback',
+          content: `Invoice #${invoiceNumber} delivery attempt`,
+          status: 'FAILED',
+          errorMessage: smsResult?.error || 'Both WhatsApp and SMS delivery failed',
+          sentBy,
+          sentAt: new Date()
+        });
+
+        return {
+          success: false,
+          deliveryStatus: 'Failed',
+          logId: log._id,
+          error: smsResult?.error || 'Both WhatsApp and SMS fallback failed'
+        };
+      }
+    } catch (smsErr) {
+      console.error('[NotificationService] SMS fallback failed:', smsErr.message);
+      return {
+        success: false,
+        deliveryStatus: 'Failed',
+        error: smsErr.message
+      };
+    }
   }
 }
 

@@ -72,12 +72,12 @@ const AdminDeliverySettings = () => {
         <div className="row g-4">
           {/* Main Form */}
           <div className="col-lg-7">
-            <div className="smp-card p-4 bg-white shadow-sm">
+            <div className="smp-card p-4 shadow-sm">
               <form onSubmit={handleSave}>
                 {/* Enable / Disable Switch */}
-                <div className="p-3 bg-light rounded-3 mb-4 d-flex justify-content-between align-items-center border">
+                <div className="p-3 rounded-3 mb-4 d-flex justify-content-between align-items-center border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
                   <div>
-                    <h6 className="fw-bold mb-0">Enable Delivery Charges</h6>
+                    <h6 className="fw-bold mb-0 text-white">Enable Delivery Charges</h6>
                     <small className="text-muted">Apply standard delivery fee at customer checkout and POS delivery</small>
                   </div>
                   <div className="form-check form-switch fs-5">
@@ -166,8 +166,8 @@ const AdminDeliverySettings = () => {
 
           {/* Real-time Simulator Card */}
           <div className="col-lg-5">
-            <div className="smp-card p-4 bg-white shadow-sm border-start border-4 border-primary">
-              <h5 className="fw-bold brand-font mb-3 d-flex align-items-center gap-2">
+            <div className="smp-card p-4 shadow-sm border-start border-4 border-primary">
+              <h5 className="fw-bold brand-font mb-3 d-flex align-items-center gap-2 text-white">
                 <i className="bi bi-calculator text-primary"></i> Live Checkout Rule Preview
               </h5>
               <p className="small text-muted mb-3">
@@ -190,13 +190,13 @@ const AdminDeliverySettings = () => {
                   />
                 </div>
                 <div className="d-flex gap-2">
-                  <button type="button" onClick={() => setSimSubtotal(500)} className="btn btn-sm btn-outline-secondary py-0">₹500 (1 Shirt)</button>
-                  <button type="button" onClick={() => setSimSubtotal(1000)} className="btn btn-sm btn-outline-secondary py-0">₹1,000 (2 Shirts)</button>
-                  <button type="button" onClick={() => setSimSubtotal(1500)} className="btn btn-sm btn-outline-secondary py-0">₹1,500 (3 Shirts)</button>
+                  <button type="button" onClick={() => setSimSubtotal(500)} className="btn btn-sm btn-outline-secondary py-0">₹500</button>
+                  <button type="button" onClick={() => setSimSubtotal(1000)} className="btn btn-sm btn-outline-secondary py-0">₹1,000</button>
+                  <button type="button" onClick={() => setSimSubtotal(1500)} className="btn btn-sm btn-outline-secondary py-0">₹1,500</button>
                 </div>
               </div>
 
-              <div className="p-3 bg-light rounded-3 border">
+              <div className="p-3 rounded-3 border" style={{ backgroundColor: 'var(--smp-dark-blue)' }}>
                 <div className="d-flex justify-content-between small py-1">
                   <span>Cart Subtotal:</span>
                   <span className="fw-bold">₹{simSubtotal.toFixed(2)}</span>
@@ -214,7 +214,7 @@ const AdminDeliverySettings = () => {
                   )}
                 </div>
                 <hr className="my-2" />
-                <div className="d-flex justify-content-between py-1 fw-bold text-dark">
+                <div className="d-flex justify-content-between py-1 fw-bold text-white">
                   <span>Simulated Total:</span>
                   <span className="text-primary fs-5">₹{(simSubtotal + simDeliveryFee).toFixed(2)}</span>
                 </div>

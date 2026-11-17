@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   searchProductPOS,
   createBillingTransaction,
+  verifyQrPaymentAndBill,
   getBillingHistory,
   getInvoiceById,
   updateBill,
@@ -17,6 +18,7 @@ router.use(authorize('staff', 'admin', 'owner'));
 router.get('/search-product', searchProductPOS);
 router.get('/customer-lookup/:phone', lookupCustomerByPhone);
 router.post('/create-bill', createBillingTransaction);
+router.post('/verify-qr-payment', verifyQrPaymentAndBill);
 router.get('/history', getBillingHistory);
 router.get('/invoice/:id', getInvoiceById);
 

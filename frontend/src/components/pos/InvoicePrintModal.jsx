@@ -14,8 +14,8 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
 
     // Header
     doc.setFontSize(18);
-    doc.setTextColor(40, 116, 240);
-    doc.text(invoice.shopInfo?.name || 'SMP Elite Fashions', 14, 20);
+    doc.setTextColor(37, 99, 235);
+    doc.text(invoice.shopInfo?.name || 'SMP', 14, 20);
 
     doc.setFontSize(9);
     doc.setTextColor(100);
@@ -67,35 +67,61 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
     doc.text(`SGST: ₹${(invoice.sgstAmount || 0).toFixed(2)}`, 140, finalY + 18);
 
     doc.setFontSize(12);
-    doc.setTextColor(40, 116, 240);
+    doc.setTextColor(37, 99, 235);
     doc.text(`Grand Total: ₹${(invoice.grandTotal || 0).toFixed(2)}`, 140, finalY + 26);
 
     doc.setFontSize(8);
     doc.setTextColor(150);
-    doc.text('Thank you for shopping with SMP Fashions! Exchange within 7 days with bill.', 14, finalY + 36);
+    doc.text('Thank you for shopping with SMP! Exchange within 7 days with bill.', 14, finalY + 36);
 
     doc.save(`${invoice.invoiceNumber}.pdf`);
+  };
+
+  const renderDeliveryBadge = () => {
+    if (!invoice.deliveryStatus) return null;
+    if (invoice.deliveryStatus.includes('WhatsApp')) {
+      return (
+        <span className="badge bg-success-subtle text-success border border-success px-2 py-1">
+          <i className="bi bi-whatsapp me-1"></i> {invoice.deliveryStatus}
+        </span>
+      );
+    }
+    if (invoice.deliveryStatus.includes('SMS')) {
+      return (
+        <span className="badge bg-info-subtle text-info border border-info px-2 py-1">
+          <i className="bi bi-chat-dots me-1"></i> {invoice.deliveryStatus}
+        </span>
+      );
+    }
+    return (
+      <span className="badge bg-warning-subtle text-warning border border-warning px-2 py-1">
+        <i className="bi bi-exclamation-circle me-1"></i> {invoice.deliveryStatus}
+      </span>
+    );
   };
 
   return (
     <div className="modal show d-block bg-dark bg-opacity-75 fade-in" tabIndex="-1" role="dialog" style={{ zIndex: 1050 }}>
       <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div className="modal-content shadow-lg border-0 rounded-4">
-          <div className="modal-header bg-light border-0 py-3 px-4">
-            <h5 className="modal-title fw-bold d-flex align-items-center gap-2">
-              <i className="bi bi-receipt text-primary"></i> Tax Invoice Preview
+        <div className="modal-content shadow-lg border-0 rounded-4" style={{ backgroundColor: '#10243D', color: '#FFFFFF' }}>
+          <div className="modal-header border-0 py-3 px-4" style={{ backgroundColor: '#071426', borderBottom: '1px solid #293D58' }}>
+            <h5 className="modal-title fw-bold d-flex align-items-center gap-2 text-white">
+              <i className="bi bi-receipt text-primary"></i> SMP Tax Invoice Preview
             </h5>
-            <button type="button" className="btn-close" onClick={onClose}></button>
+            <div className="d-flex align-items-center gap-2">
+              {renderDeliveryBadge()}
+              <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
+            </div>
           </div>
 
-          <div className="modal-body p-4">
+          <div className="modal-body p-4" style={{ backgroundColor: '#071426' }}>
             {/* Printable Invoice Container */}
-            <div id="printable-invoice" className="p-4 bg-white border rounded-3 shadow-sm">
+            <div id="printable-invoice" className="p-4 bg-white text-dark border rounded-3 shadow-sm">
               {/* Header */}
               <div className="d-flex justify-content-between align-items-start border-bottom pb-3 mb-3">
                 <div>
                   <h3 className="brand-font fw-bold text-primary mb-1">
-                    {invoice.shopInfo?.name || 'SMP Elite Fashions'}
+                    {invoice.shopInfo?.name || 'SMP'}
                   </h3>
                   <p className="text-secondary small mb-1">
                     {invoice.shopInfo?.address || '100 Feet Road, Anna Nagar, Chennai - 600040'}
@@ -114,6 +140,11 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                   <div className="text-muted small">
                     <strong>Date:</strong> {new Date(invoice.createdAt || Date.now()).toLocaleDateString()}
                   </div>
+                  {invoice.deliveryStatus && (
+                    <div className="mt-1 small">
+                      {renderDeliveryBadge()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -130,12 +161,15 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                   <div><strong>Method:</strong> {invoice.paymentMethod}</div>
                   <div><strong>Status:</strong> <span className="badge bg-success">{invoice.paymentStatus}</span></div>
                   <div><strong>Staff / Terminal:</strong> {invoice.staffId?.fullName || invoice.staffId?.staffId || 'Counter 1'}</div>
+                  {invoice.paymentDetails?.transactionRef && (
+                    <div className="text-muted font-monospace small"><strong>UTR / Ref:</strong> {invoice.paymentDetails.transactionRef}</div>
+                  )}
                 </div>
               </div>
 
               {/* Items Table */}
               <div className="table-responsive mb-4">
-                <table className="table table-sm table-striped align-middle">
+                <table className="table table-sm table-striped align-middle text-dark">
                   <thead className="table-light">
                     <tr>
                       <th style={{ width: '5%' }}>#</th>
@@ -199,21 +233,21 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                 </div>
                 <div className="small text-muted">{invoice.invoiceNumber}</div>
                 <p className="small text-secondary mt-2 mb-0">
-                  Thank you for shopping at SMP Elite Fashions! Exchanges allowed within 7 days along with this bill.
+                  Thank you for shopping at SMP! Exchanges allowed within 7 days along with this bill.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="modal-footer bg-light border-0 py-3 px-4 d-flex justify-content-between">
-            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>
+          <div className="modal-footer border-0 py-3 px-4 d-flex justify-content-between" style={{ backgroundColor: '#10243D', borderTop: '1px solid #293D58' }}>
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose} style={{ borderColor: '#3b567d', color: '#DCEBFF' }}>
               Close
             </button>
             <div className="d-flex gap-2">
-              <button type="button" className="btn btn-outline-primary" onClick={handleDownloadPdf}>
+              <button type="button" className="btn btn-outline-primary" onClick={handleDownloadPdf} style={{ borderColor: '#3b82f6', color: '#60a5fa' }}>
                 <i className="bi bi-file-earmark-pdf me-1"></i> Download PDF
               </button>
-              <button type="button" className="btn btn-primary" onClick={handlePrint}>
+              <button type="button" className="btn btn-primary" onClick={handlePrint} style={{ backgroundColor: '#2563EB', borderColor: '#60a5fa' }}>
                 <i className="bi bi-printer me-1"></i> Print Bill
               </button>
             </div>

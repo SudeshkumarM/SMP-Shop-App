@@ -100,6 +100,14 @@ const invoiceSchema = new mongoose.Schema({
     type: String,
     default: 'PAID'
   },
+  paymentDetails: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  deliveryStatus: {
+    type: String,
+    default: 'PENDING'
+  },
   barcode: {
     type: String
   },
