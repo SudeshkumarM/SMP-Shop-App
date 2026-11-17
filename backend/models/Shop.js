@@ -73,7 +73,30 @@ const shopSchema = new mongoose.Schema({
     defaultGstPercent: { type: Number, default: 5 },
     lowStockThreshold: { type: Number, default: 10 },
     enablePosBarcodeScan: { type: Boolean, default: true },
-    invoicePrefix: { type: String, default: 'SMP' }
+    invoicePrefix: { type: String, default: 'SMP' },
+    deliverySettings: {
+      enabled: { type: Boolean, default: true },
+      deliveryCharge: { type: Number, default: 50 },
+      freeDeliveryThreshold: { type: Number, default: 1000 },
+      chargeType: { type: String, enum: ['FLAT', 'PERCENT'], default: 'FLAT' },
+      description: { type: String, default: 'Standard Express Shipping (2-3 business days)' }
+    },
+    gstSettings: {
+      enabled: { type: Boolean, default: true },
+      defaultGstPercent: { type: Number, default: 5 },
+      gstNumber: { type: String, default: '33AAAAA0000A1Z5' },
+      compositionScheme: { type: Boolean, default: false }
+    },
+    whatsappSettings: {
+      enabled: { type: Boolean, default: false },
+      apiUrl: { type: String, default: 'https://graph.facebook.com/v18.0' },
+      apiKey: { type: String, default: '' },
+      phoneNumberId: { type: String, default: '' },
+      businessAccountId: { type: String, default: '' },
+      notifyOnOffer: { type: Boolean, default: false },
+      notifyOnCoupon: { type: Boolean, default: false },
+      notifyOnInvoice: { type: Boolean, default: false }
+    }
   }
 }, {
   timestamps: true

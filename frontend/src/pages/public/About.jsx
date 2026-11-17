@@ -8,9 +8,9 @@ const About = () => {
         <div className="col-lg-10">
           <div className="text-center mb-5">
             <span className="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fw-bold mb-2">
-              ABOUT SMP PLATFORM
+              ABOUT SMP
             </span>
-            <h1 className="display-5 fw-bold brand-font">Shop Management Platform</h1>
+            <h1 className="display-5 fw-bold brand-font">SMP Retail System</h1>
             <p className="lead text-muted mx-auto" style={{ maxWidth: '700px' }}>
               A modern, robust, and scalable retail operating system designed for single boutiques today, and multi-shop enterprise shopping malls tomorrow.
             </p>
@@ -52,7 +52,7 @@ const About = () => {
           <div className="smp-card p-4 p-md-5 text-center bg-primary text-white">
             <h3 className="fw-bold brand-font mb-2">Explore the Four Modules</h3>
             <p className="text-light mb-4">
-              Switch seamlessly between Customer Store, Staff POS, Admin Shop Management, and Owner Governance.
+              Switch seamlessly between Customer Store, Staff POS, Admin Console, and Owner Governance.
             </p>
             <div className="d-flex flex-wrap justify-content-center gap-3">
               <Link to="/" className="btn btn-light fw-bold px-4 rounded-pill">Customer Store</Link>

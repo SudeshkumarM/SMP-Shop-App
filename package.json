@@ -1,7 +1,7 @@
 {
-  "name": "smp-shop-management-platform",
+  "name": "smp-retail-app",
   "version": "1.0.0",
-  "description": "SMP (Shop Management Platform) - Scalable E-Commerce & Multi-Shop Management System",
+  "description": "SMP - Scalable E-Commerce & Multi-Module Retail System",
   "scripts": {
     "dev": "node dev.js",
     "start": "node dev.js",

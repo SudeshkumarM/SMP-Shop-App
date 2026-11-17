@@ -44,7 +44,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
 const sendOrderConfirmation = async (order) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-      <h2 style="color: #2874f0; text-align: center;">SMP (Shop Management Platform)</h2>
+      <h2 style="color: #2563eb; text-align: center;">SMP</h2>
       <h3>Order Confirmation - ${order.orderNumber}</h3>
       <p>Thank you for shopping with us, <strong>${order.customerDetails.name}</strong>!</p>
       <p>Your order has been placed and is currently being processed.</p>

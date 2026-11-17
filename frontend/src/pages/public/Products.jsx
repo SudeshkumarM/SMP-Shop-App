@@ -88,7 +88,7 @@ const Products = () => {
       {/* Breadcrumb & Header */}
       <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
         <div>
-          <h2 className="fw-bold brand-font mb-0">Fashion & Apparel Catalog</h2>
+          <h2 className="fw-bold brand-font mb-0">SMP Product Catalog</h2>
           <small className="text-muted">Showing {products.length} of {total} products</small>
         </div>
 

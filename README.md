@@ -1,5 +1,5 @@
-# SMP (Shop Management Platform)
-### Scalable E-Commerce & Multi-Shop Management System
+# SMP
+### Scalable E-Commerce & Multi-Module Retail System
 
 [![Node.js](https://img.shields.io/badge/Node.js-v18+-green.svg)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-v18.3-blue.svg)](https://react.dev/)
@@ -11,13 +11,13 @@
 
 ## 1. Executive Project Overview
 
-**SMP (Shop Management Platform)** is an enterprise-grade, multi-tenant retail and e-commerce web platform. Designed with strict multi-tenant isolation, the system initially operates with **ONLY ONE flagship product — the Premium Cotton Shirt priced at ₹500**, while the underlying architecture supports seamless future expansion into a multi-shop **Shopping Mall** ecosystem (Electronics, Grocery, Footwear, Accessories, Supermarkets).
+**SMP** is an enterprise-grade, multi-tenant retail and e-commerce web platform. Designed with strict multi-tenant isolation, the system initially operates with **ONLY ONE flagship product — the Premium Cotton Shirt priced at ₹500**, while the underlying architecture supports seamless future expansion into a multi-shop **Shopping Mall** ecosystem (Electronics, Grocery, Footwear, Accessories, Supermarkets).
 
 SMP provides **four completely segregated user modules**, each with isolated routing, dual-credential authentication (Username OR Email + Password), dedicated sidebar navigation, role-based authorization guards, and granular permissions:
 
 1. **🛍️ Customer Module**: Consumer storefront featuring mobile OTP verification, dynamic filtering, real-time cart math, wishlist, multi-address checkout, mock payment gateway, order tracking, and dedicated Customer Help.
 2. **💳 Staff Module**: High-speed Point of Sale (POS) counter billing terminal featuring barcode scanning (`890123450001`), SKU search, instant customer enrollment, invoice generation, atomic stock deduction, bill correction (if enabled by Admin), thermal printing, and PDF invoice downloads.
-3. **⚙️ Admin Module**: Shop management console for inventory control, staff provisioning (with individual usernames e.g. `kumar01`, `staff02` and Staff IDs e.g. `STF-1001`), customer CRM with Excel export, product price & GST modification, bill editing/cancellation with audit logs, and tax/sales reporting.
+3. **⚙️ Admin Module**: Store management console for inventory control, staff provisioning (with individual usernames e.g. `kumar01`, `staff02` and Staff IDs e.g. `STF-1001`), customer CRM with Excel export, product price & GST modification, bill editing/cancellation with audit logs, and tax/sales reporting.
 4. **👑 Owner Module**: Highest executive authority console for business oversight across multiple shops and branches, tracking initial & operational capital investments, recurring overheads, and performing true mathematical Profit & Loss audits ($Gross\ Profit = Total\ Sales - Total\ Purchase\ Cost$; $Net\ Profit = Gross\ Profit - Total\ Expenses$).
 
 ---
@@ -127,7 +127,7 @@ Admin and Owner have complete authority to edit the Shirt name, image, price, GS
 | `/staff/profile` | `StaffProfile.jsx` | Staff identity, assigned branch, and shift history |
 | `/staff/help` | `StaffHelp.jsx` | **Staff Operating Manual**: POS billing steps, printing, product check, admin escalation |
 
-### 5.4 Admin Shop Management (`AdminLayout`)
+### 5.4 Admin Management Console (`AdminLayout`)
 | Route | Component | Description |
 | :--- | :--- | :--- |
 | `/admin/login` | `AdminLogin.jsx` | Dedicated Admin Login Portal |

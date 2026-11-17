@@ -68,6 +68,14 @@ const customerSchema = new mongoose.Schema({
   totalSpend: {
     type: Number,
     default: 0
+  },
+  consentPromotionalWhatsApp: {
+    type: Boolean,
+    default: false
+  },
+  lastPurchaseDate: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

@@ -20,14 +20,14 @@ const ProtectedRoute = ({ allowedRoles = [], children }) => {
   }
 
   if (!isAuthenticated) {
-    // Redirect to module-appropriate login page
-    if (allowedRoles.includes('owner')) {
+    // Redirect strictly to the exact module login page matching the URL path
+    if (location.pathname.startsWith('/owner')) {
       return <Navigate to="/owner/login" state={{ from: location }} replace />;
     }
-    if (allowedRoles.includes('admin')) {
+    if (location.pathname.startsWith('/admin')) {
       return <Navigate to="/admin/login" state={{ from: location }} replace />;
     }
-    if (allowedRoles.includes('staff')) {
+    if (location.pathname.startsWith('/staff')) {
       return <Navigate to="/staff/login" state={{ from: location }} replace />;
     }
     return <Navigate to="/customer/login" state={{ from: location }} replace />;

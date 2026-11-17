@@ -6,7 +6,8 @@ const {
   getBillingHistory,
   getInvoiceById,
   updateBill,
-  deleteBill
+  deleteBill,
+  lookupCustomerByPhone
 } = require('../controllers/billingController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -14,6 +15,7 @@ router.use(protect);
 router.use(authorize('staff', 'admin', 'owner'));
 
 router.get('/search-product', searchProductPOS);
+router.get('/customer-lookup/:phone', lookupCustomerByPhone);
 router.post('/create-bill', createBillingTransaction);
 router.get('/history', getBillingHistory);
 router.get('/invoice/:id', getInvoiceById);

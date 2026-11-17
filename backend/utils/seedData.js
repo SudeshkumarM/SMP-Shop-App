@@ -17,6 +17,8 @@ const Investment = require('../models/Investment');
 const Expense = require('../models/Expense');
 const Order = require('../models/Order');
 const Invoice = require('../models/Invoice');
+const Coupon = require('../models/Coupon');
+const WhatsAppLog = require('../models/WhatsAppLog');
 const { generateInvoiceBarcode } = require('../utils/generateBarcode');
 
 const seedAll = async () => {
@@ -83,7 +85,29 @@ const seedAll = async () => {
         defaultGstPercent: 5,
         lowStockThreshold: 10,
         enablePosBarcodeScan: true,
-        invoicePrefix: 'SMP'
+        invoicePrefix: 'SMP',
+        deliverySettings: {
+          enabled: true,
+          deliveryCharge: 50,
+          freeDeliveryThreshold: 1000,
+          chargeType: 'FLAT',
+          description: 'Standard Express Shipping (2-3 business days)'
+        },
+        gstSettings: {
+          enabled: true,
+          defaultGstPercent: 5,
+          gstNumber: '33AAAAA0000A1Z5',
+          compositionScheme: false
+        },
+        whatsappSettings: {
+          enabled: false,
+          apiUrl: 'https://graph.facebook.com/v18.0',
+          apiKey: '',
+          phoneNumberId: '',
+          notifyOnOffer: false,
+          notifyOnCoupon: false,
+          notifyOnInvoice: false
+        }
       }
     });
 
@@ -222,6 +246,8 @@ const seedAll = async () => {
       loyaltyPoints: 120,
       totalPurchases: 2,
       totalSpend: 2100,
+      consentPromotionalWhatsApp: true,
+      lastPurchaseDate: new Date(),
       addresses: [{
         title: 'Home',
         street: '15 Gandhi Road, T. Nagar',
@@ -449,6 +475,21 @@ const seedAll = async () => {
       paymentStatus: 'PAID',
       barcode: generateInvoiceBarcode(invNumber),
       printedCount: 1
+    });
+
+    console.log('[Seed] 8. Creating Initial Coupon SMP20...');
+    await Coupon.create({
+      code: 'SMP20',
+      title: 'Welcome 20% Discount',
+      description: 'Enjoy 20% OFF on your apparel purchase at SMP.',
+      discountPercent: 20,
+      minPurchaseAmount: 500,
+      startDate: new Date(),
+      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      isActive: true,
+      sendWhatsApp: false,
+      shopId: dressShop._id,
+      createdBy: adminUser._id
     });
 
     console.log('\n=============================================================');

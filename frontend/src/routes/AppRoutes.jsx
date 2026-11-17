@@ -56,6 +56,9 @@ import AdminOrders from '../pages/admin/AdminOrders';
 import AdminReports from '../pages/admin/AdminReports';
 import AdminHelp from '../pages/admin/AdminHelp';
 import AdminSettings from '../pages/admin/AdminSettings';
+import AdminDeliverySettings from '../pages/admin/AdminDeliverySettings';
+import AdminGstSettings from '../pages/admin/AdminGstSettings';
+import AdminOffers from '../pages/admin/AdminOffers';
 
 // Owner Pages
 import OwnerLogin from '../pages/owner/OwnerLogin';
@@ -69,6 +72,7 @@ import OwnerExpenses from '../pages/owner/OwnerExpenses';
 import OwnerProfits from '../pages/owner/OwnerProfits';
 import OwnerReports from '../pages/owner/OwnerReports';
 import OwnerSettings from '../pages/owner/OwnerSettings';
+import OwnerHelp from '../pages/owner/OwnerHelp';
 
 // 404 Not Found Page Component
 const NotFound = () => (
@@ -196,6 +200,9 @@ const AppRoutes = () => {
         <Route path="inventory" element={<AdminInventory />} />
         <Route path="orders" element={<AdminOrders />} />
         <Route path="reports" element={<AdminReports />} />
+        <Route path="delivery-settings" element={<AdminDeliverySettings />} />
+        <Route path="gst-settings" element={<AdminGstSettings />} />
+        <Route path="offers" element={<AdminOffers />} />
         <Route path="help" element={<AdminHelp />} />
         <Route path="settings" element={<AdminSettings />} />
       </Route>
@@ -222,6 +229,7 @@ const AppRoutes = () => {
         <Route path="profits" element={<OwnerProfits />} />
         <Route path="reports" element={<OwnerReports />} />
         <Route path="settings" element={<OwnerSettings />} />
+        <Route path="help" element={<OwnerHelp />} />
       </Route>
 
       {/* Catch-all */}

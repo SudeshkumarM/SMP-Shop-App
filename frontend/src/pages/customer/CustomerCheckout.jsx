@@ -14,19 +14,30 @@ const CustomerCheckout = () => {
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [deliveryRules, setDeliveryRules] = useState({
+    enabled: true,
+    deliveryCharge: 50,
+    freeDeliveryThreshold: 1000
+  });
 
   // New address form toggle
   const [showNewAddress, setShowNewAddress] = useState(false);
   const [newAddr, setNewAddr] = useState({ title: 'Home', street: '', city: 'Chennai', state: 'Tamil Nadu', pincode: '' });
 
   useEffect(() => {
-    const fetchAddresses = async () => {
+    const fetchData = async () => {
       try {
-        const res = await api.get('/customer/addresses');
-        if (res.data.success && res.data.addresses.length > 0) {
-          setAddresses(res.data.addresses);
+        const [addrRes, rulesRes] = await Promise.all([
+          api.get('/customer/addresses'),
+          api.get('/products/delivery/rules').catch(() => ({ data: { success: false } }))
+        ]);
+        if (addrRes.data.success && addrRes.data.addresses.length > 0) {
+          setAddresses(addrRes.data.addresses);
         } else {
           setShowNewAddress(true);
+        }
+        if (rulesRes.data?.success && rulesRes.data.delivery) {
+          setDeliveryRules(rulesRes.data.delivery);
         }
       } catch (err) {
         console.error(err);
@@ -34,7 +45,7 @@ const CustomerCheckout = () => {
         setLoading(false);
       }
     };
-    fetchAddresses();
+    fetchData();
   }, []);
 
   const handleAddNewAddress = async (e) => {
@@ -258,15 +269,32 @@ const CustomerCheckout = () => {
               <span className="fw-semibold">₹{(cart.gstAmount || 0).toFixed(2)}</span>
             </div>
 
-            <div className="d-flex justify-content-between py-2 border-bottom small">
-              <span className="text-muted">Delivery</span>
-              <span className="text-success fw-bold">FREE</span>
-            </div>
+            {/* Dynamic Delivery & Total Calculation */}
+            {(() => {
+              const subtotal = cart.subtotal || 0;
+              const deliveryFee = (deliveryRules.enabled && subtotal < (deliveryRules.freeDeliveryThreshold || 1000))
+                ? (deliveryRules.deliveryCharge || 50)
+                : 0;
+              const totalPayable = subtotal + (cart.gstAmount || 0) + deliveryFee;
 
-            <div className="d-flex justify-content-between py-3 border-bottom fs-5 fw-bold text-dark">
-              <span>Total Payable</span>
-              <span className="text-primary">₹{(cart.grandTotal || 0).toFixed(2)}</span>
-            </div>
+              return (
+                <>
+                  <div className="d-flex justify-content-between py-2 border-bottom small">
+                    <span className="text-muted">Delivery</span>
+                    {deliveryFee === 0 ? (
+                      <span className="text-success fw-bold">FREE (Above ₹{deliveryRules.freeDeliveryThreshold})</span>
+                    ) : (
+                      <span className="text-primary fw-bold">+₹{deliveryFee.toFixed(2)}</span>
+                    )}
+                  </div>
+
+                  <div className="d-flex justify-content-between py-3 border-bottom fs-5 fw-bold text-dark">
+                    <span>Total Payable</span>
+                    <span className="text-primary">₹{totalPayable.toFixed(2)}</span>
+                  </div>
+                </>
+              );
+            })()}
 
             <button
               onClick={handleProceedToPayment}

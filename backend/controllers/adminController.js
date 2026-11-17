@@ -8,6 +8,9 @@ const Order = require('../models/Order');
 const Invoice = require('../models/Invoice');
 const Supplier = require('../models/Supplier');
 const Shop = require('../models/Shop');
+const Coupon = require('../models/Coupon');
+const WhatsAppLog = require('../models/WhatsAppLog');
+const WhatsAppService = require('../services/whatsappService');
 const xlsx = require('xlsx');
 
 /**
@@ -181,7 +184,7 @@ const createAdminCustomer = async (req, res) => {
 
 const updateAdminCustomer = async (req, res) => {
   try {
-    const { fullName, email, phone, isBlocked } = req.body;
+    const { fullName, email, phone, isBlocked, consentPromotionalWhatsApp } = req.body;
     const customer = await Customer.findById(req.params.id);
 
     if (!customer) {
@@ -192,6 +195,7 @@ const updateAdminCustomer = async (req, res) => {
     if (email) customer.email = email.toLowerCase();
     if (phone) customer.phone = phone;
     if (isBlocked !== undefined) customer.isBlocked = isBlocked;
+    if (consentPromotionalWhatsApp !== undefined) customer.consentPromotionalWhatsApp = Boolean(consentPromotionalWhatsApp);
 
     await customer.save();
 
@@ -539,6 +543,322 @@ const updateShopSettings = async (req, res) => {
   }
 };
 
+/**
+ * ====================================================
+ * DELIVERY CHARGE SETTINGS
+ * ====================================================
+ */
+const getDeliverySettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    const delivery = (shop && shop.settings && shop.settings.deliverySettings) ? shop.settings.deliverySettings : {
+      enabled: true,
+      deliveryCharge: 50,
+      freeDeliveryThreshold: 1000,
+      chargeType: 'FLAT',
+      description: 'Standard Express Shipping (2-3 business days)'
+    };
+    res.status(200).json({ success: true, settings: delivery });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateDeliverySettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+    shop.settings = shop.settings || {};
+    shop.settings.deliverySettings = {
+      ...shop.settings.deliverySettings,
+      ...req.body
+    };
+    await shop.save();
+    res.status(200).json({ success: true, message: 'Delivery settings updated successfully', settings: shop.settings.deliverySettings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ====================================================
+ * GST & TAX SETTINGS
+ * ====================================================
+ */
+const getGstSettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    const gst = (shop && shop.settings && shop.settings.gstSettings) ? shop.settings.gstSettings : {
+      enabled: true,
+      defaultGstPercent: 5,
+      gstNumber: '33AAAAA0000A1Z5',
+      compositionScheme: false
+    };
+
+    // Aggregate GST collections
+    const taxStats = await Invoice.aggregate([
+      { $match: { isDeleted: false } },
+      {
+        $group: {
+          _id: null,
+          totalCgst: { $sum: '$cgstAmount' },
+          totalSgst: { $sum: '$sgstAmount' },
+          totalTaxableValue: { $sum: '$subtotal' },
+          totalInvoicesCount: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const stats = taxStats[0] || { totalCgst: 0, totalSgst: 0, totalTaxableValue: 0, totalInvoicesCount: 0 };
+    stats.totalGstCollected = Math.round(((stats.totalCgst || 0) + (stats.totalSgst || 0)) * 100) / 100;
+
+    res.status(200).json({ success: true, settings: gst, stats });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateGstSettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+    shop.settings = shop.settings || {};
+    shop.settings.gstSettings = {
+      ...shop.settings.gstSettings,
+      ...req.body
+    };
+    if (req.body.gstNumber) {
+      shop.gstNumber = req.body.gstNumber;
+    }
+    await shop.save();
+    res.status(200).json({ success: true, message: 'GST settings updated successfully', settings: shop.settings.gstSettings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ====================================================
+ * WHATSAPP BUSINESS NOTIFICATION SETTINGS & LOGS
+ * ====================================================
+ */
+const getWhatsAppSettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    const whatsapp = (shop && shop.settings && shop.settings.whatsappSettings) ? shop.settings.whatsappSettings : {
+      enabled: false,
+      apiUrl: 'https://graph.facebook.com/v18.0',
+      apiKey: '',
+      phoneNumberId: '',
+      notifyOnOffer: false,
+      notifyOnCoupon: false,
+      notifyOnInvoice: false
+    };
+    res.status(200).json({ success: true, settings: whatsapp });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateWhatsAppSettings = async (req, res) => {
+  try {
+    const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
+    if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+    shop.settings = shop.settings || {};
+    shop.settings.whatsappSettings = {
+      ...shop.settings.whatsappSettings,
+      ...req.body
+    };
+    await shop.save();
+    res.status(200).json({ success: true, message: 'WhatsApp settings updated successfully', settings: shop.settings.whatsappSettings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getWhatsAppLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, type, status } = req.query;
+    const filter = {};
+    if (type) filter.messageType = type;
+    if (status) filter.status = status;
+
+    const total = await WhatsAppLog.countDocuments(filter);
+    const logs = await WhatsAppLog.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+
+    res.status(200).json({ success: true, total, logs });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * ====================================================
+ * COUPON & OFFER MANAGEMENT (WITH WHATSAPP DISPATCH)
+ * ====================================================
+ */
+const getCoupons = async (req, res) => {
+  try {
+    const coupons = await Coupon.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, coupons });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const createCoupon = async (req, res) => {
+  try {
+    const { code, title, description, discountPercent, minPurchaseAmount, expiryDate, isActive, sendWhatsApp } = req.body;
+    if (!code || !title || !discountPercent || !expiryDate) {
+      return res.status(400).json({ success: false, message: 'Please fill all required coupon fields.' });
+    }
+
+    const existing = await Coupon.findOne({ code: code.toUpperCase().trim() });
+    if (existing) {
+      return res.status(400).json({ success: false, message: `Coupon code ${code.toUpperCase()} already exists.` });
+    }
+
+    const coupon = await Coupon.create({
+      code: code.toUpperCase().trim(),
+      title,
+      description,
+      discountPercent: Number(discountPercent),
+      minPurchaseAmount: Number(minPurchaseAmount || 0),
+      expiryDate,
+      isActive: isActive !== undefined ? isActive : true,
+      sendWhatsApp: Boolean(sendWhatsApp),
+      createdBy: req.user._id,
+      shopId: req.user.shopId || null
+    });
+
+    let whatsAppSummary = { sent: 0, optedOut: 0, failed: 0 };
+
+    // If WhatsApp notification is ENABLED, dispatch to consented customers
+    if (sendWhatsApp) {
+      const consentedCustomers = await Customer.find({ consentPromotionalWhatsApp: true });
+      for (const cust of consentedCustomers) {
+        if (!cust.phone) continue;
+        const msgResult = await WhatsAppService.sendMessage({
+          phone: cust.phone,
+          customerName: cust.fullName,
+          customerId: cust._id,
+          messageType: 'COUPON',
+          templateName: 'coupon_voucher',
+          content: WhatsAppService.buildCouponMessage({
+            customerName: cust.fullName,
+            couponCode: coupon.code,
+            discountPercent: coupon.discountPercent,
+            minPurchase: coupon.minPurchaseAmount,
+            expiryDate: coupon.expiryDate
+          }),
+          shopId: req.user.shopId,
+          sentBy: req.user._id,
+          requiresConsent: true
+        });
+
+        if (msgResult.status === 'SENT' || msgResult.status === 'SIMULATED') {
+          whatsAppSummary.sent++;
+        } else if (msgResult.status === 'OPTED_OUT') {
+          whatsAppSummary.optedOut++;
+        } else {
+          whatsAppSummary.failed++;
+        }
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Coupon ${coupon.code} created successfully.${sendWhatsApp ? ` WhatsApp notifications dispatched to ${whatsAppSummary.sent} consented customer(s).` : ''}`,
+      coupon,
+      whatsAppSummary
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateCoupon = async (req, res) => {
+  try {
+    const coupon = await Coupon.findById(req.params.id);
+    if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+
+    Object.assign(coupon, req.body);
+    if (req.body.code) coupon.code = req.body.code.toUpperCase().trim();
+    await coupon.save();
+
+    res.status(200).json({ success: true, message: 'Coupon updated successfully', coupon });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteCoupon = async (req, res) => {
+  try {
+    const coupon = await Coupon.findByIdAndDelete(req.params.id);
+    if (!coupon) return res.status(404).json({ success: false, message: 'Coupon not found' });
+    res.status(200).json({ success: true, message: `Coupon ${coupon.code} deleted successfully.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const sendOfferWhatsAppBroadcast = async (req, res) => {
+  try {
+    const { offerName, offerDescription, discountPercent, couponCode, startDate, endDate, sendWhatsApp } = req.body;
+    if (!offerName || !discountPercent || !couponCode) {
+      return res.status(400).json({ success: false, message: 'Offer Name, Discount %, and Coupon Code are required.' });
+    }
+
+    if (!sendWhatsApp) {
+      return res.status(200).json({ success: true, message: 'Offer saved (WhatsApp notification disabled).' });
+    }
+
+    const consentedCustomers = await Customer.find({ consentPromotionalWhatsApp: true });
+    let sentCount = 0;
+    let optedOutCount = 0;
+    let failedCount = 0;
+
+    for (const cust of consentedCustomers) {
+      if (!cust.phone) continue;
+      const result = await WhatsAppService.sendMessage({
+        phone: cust.phone,
+        customerName: cust.fullName,
+        customerId: cust._id,
+        messageType: 'OFFER',
+        templateName: 'offer_notification',
+        content: WhatsAppService.buildOfferMessage({
+          customerName: cust.fullName,
+          offerName,
+          discountPercent,
+          couponCode
+        }),
+        shopId: req.user.shopId,
+        sentBy: req.user._id,
+        requiresConsent: true
+      });
+
+      if (result.status === 'SENT' || result.status === 'SIMULATED') {
+        sentCount++;
+      } else if (result.status === 'OPTED_OUT') {
+        optedOutCount++;
+      } else {
+        failedCount++;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Promotional offer dispatched to ${sentCount} consented customer(s).`,
+      summary: { totalEligible: consentedCustomers.length, sentCount, optedOutCount, failedCount }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getAdminDashboardStats,
   getAdminCustomers,
@@ -555,5 +875,17 @@ module.exports = {
   addPurchaseStockEntry,
   createSupplier,
   getShopSettings,
-  updateShopSettings
+  updateShopSettings,
+  getDeliverySettings,
+  updateDeliverySettings,
+  getGstSettings,
+  updateGstSettings,
+  getWhatsAppSettings,
+  updateWhatsAppSettings,
+  getWhatsAppLogs,
+  getCoupons,
+  createCoupon,
+  updateCoupon,
+  deleteCoupon,
+  sendOfferWhatsAppBroadcast
 };

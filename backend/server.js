@@ -49,7 +49,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
-    platform: 'SMP (Shop Management Platform)',
+    platform: 'SMP',
     timestamp: new Date().toISOString()
   });
 });

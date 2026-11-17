@@ -3,6 +3,8 @@ const Product = require('../models/Product');
 const Inventory = require('../models/Inventory');
 const Cart = require('../models/Cart');
 const Customer = require('../models/Customer');
+const Shop = require('../models/Shop');
+const WhatsAppService = require('../services/whatsappService');
 const { createPaymentIntent } = require('../services/paymentService');
 const { sendOrderConfirmation } = require('../services/emailService');
 
@@ -80,13 +82,23 @@ const createOrder = async (req, res) => {
       });
     }
 
-    const grandTotal = Math.round((subtotal + totalGst) * 100) / 100;
+    const shop = (await Shop.findById(cart.shopId)) || (await Shop.findOne({ isActive: true }));
+    let deliveryCharge = 0;
+    if (shop && shop.settings && shop.settings.deliverySettings && shop.settings.deliverySettings.enabled) {
+      const threshold = Number(shop.settings.deliverySettings.freeDeliveryThreshold) || 1000;
+      const standardFee = Number(shop.settings.deliverySettings.deliveryCharge) || 50;
+      if (subtotal < threshold) {
+        deliveryCharge = standardFee;
+      }
+    }
+
+    const grandTotal = Math.round((subtotal + totalGst + deliveryCharge) * 100) / 100;
     const orderNumber = generateOrderNumber();
 
     const order = await Order.create({
       orderNumber,
       orderType: 'ONLINE',
-      shopId: cart.shopId,
+      shopId: shop ? shop._id : cart.shopId,
       customerId: customer._id,
       customerDetails: {
         name: customer.fullName,
@@ -97,6 +109,8 @@ const createOrder = async (req, res) => {
       items: orderItems,
       subtotal: Math.round(subtotal * 100) / 100,
       totalGst: Math.round(totalGst * 100) / 100,
+      deliveryCharge,
+      shippingFee: deliveryCharge,
       grandTotal,
       totalCost: Math.round(totalCost * 100) / 100,
       paymentMethod,
@@ -141,9 +155,10 @@ const createOrder = async (req, res) => {
     });
 
     // Update customer stats
-    customer.totalPurchases += 1;
-    customer.totalSpent += grandTotal;
-    customer.loyaltyPoints += Math.floor(grandTotal / 100);
+    customer.totalPurchases = (customer.totalPurchases || 0) + 1;
+    customer.totalSpend = (customer.totalSpend || 0) + grandTotal;
+    customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(grandTotal / 100);
+    customer.lastPurchaseDate = new Date();
     await customer.save();
 
     // Clear user cart
@@ -151,6 +166,26 @@ const createOrder = async (req, res) => {
 
     // Send order confirmation email asynchronously
     sendOrderConfirmation(order).catch(e => console.log('Email delivery note:', e.message));
+
+    // Optional WhatsApp Order Confirmation
+    if (customer.phone && shop && shop.settings && shop.settings.whatsappSettings && shop.settings.whatsappSettings.notifyOnInvoice) {
+      WhatsAppService.sendMessage({
+        phone: customer.phone,
+        customerName: customer.fullName,
+        customerId: customer._id,
+        messageType: 'INVOICE',
+        templateName: 'order_placed',
+        content: WhatsAppService.buildInvoiceMessage({
+          customerName: customer.fullName,
+          invoiceNumber: order.orderNumber,
+          grandTotal: order.grandTotal,
+          itemCount: order.items.reduce((acc, i) => acc + i.quantity, 0),
+          paymentMethod: order.paymentMethod
+        }),
+        shopId: shop._id,
+        requiresConsent: false
+      }).catch(err => console.error('[WhatsApp Online Order Err]', err.message));
+    }
 
     res.status(201).json({
       success: true,

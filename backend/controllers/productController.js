@@ -552,6 +552,22 @@ const exportProductsExcel = async (req, res) => {
   }
 };
 
+const getShopDeliveryRules = async (req, res) => {
+  try {
+    const shop = await Shop.findOne({ isActive: true });
+    const rules = (shop && shop.settings && shop.settings.deliverySettings) ? shop.settings.deliverySettings : {
+      enabled: true,
+      deliveryCharge: 50,
+      freeDeliveryThreshold: 1000,
+      chargeType: 'FLAT',
+      description: 'Standard Express Shipping (2-3 business days)'
+    };
+    res.status(200).json({ success: true, delivery: rules });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getProducts,
   getProductById,
@@ -561,5 +577,6 @@ module.exports = {
   getCategories,
   createCategory,
   importProductsExcel,
-  exportProductsExcel
+  exportProductsExcel,
+  getShopDeliveryRules
 };

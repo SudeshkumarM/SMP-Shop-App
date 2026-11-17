@@ -11,7 +11,7 @@ const AdminLayout = () => {
       </div>
       <div className="d-flex flex-column flex-grow-1 overflow-hidden">
         <TopHeader
-          title="Admin Shop Management Console"
+          title="SMP Admin Console"
           subtitle="Inventory, Staff, Products, Customers & Financial Reports"
           module="admin"
         />

@@ -32,19 +32,22 @@ const Sidebar = ({ module }) => {
         { to: '/admin/staff', icon: 'bi-person-workspace', label: 'Staff Management' },
         { to: '/admin/products', icon: 'bi-tags-fill', label: 'Product Management' },
         { to: '/admin/billing', icon: 'bi-receipt-cutoff', label: 'Billing Management' },
+        { to: '/admin/delivery-settings', icon: 'bi-truck', label: 'Delivery Settings' },
+        { to: '/admin/gst-settings', icon: 'bi-file-earmark-ruled', label: 'GST Settings' },
+        { to: '/admin/offers', icon: 'bi-whatsapp', label: 'Offers & WhatsApp' },
         { to: '/admin/categories', icon: 'bi-grid-fill', label: 'Categories' },
         { to: '/admin/inventory', icon: 'bi-boxes', label: 'Inventory & Stock' },
         { to: '/admin/orders', icon: 'bi-cart-check-fill', label: 'Order Management' },
         { to: '/admin/reports', icon: 'bi-graph-up-arrow', label: 'Reports & Analytics' },
         { to: '/admin/help', icon: 'bi-book-half', label: 'Admin Help Guide' },
-        { to: '/admin/settings', icon: 'bi-gear-fill', label: 'Shop Settings' }
+        { to: '/admin/settings', icon: 'bi-gear-fill', label: 'Store Settings' }
       ];
     }
 
     if (module === 'owner') {
       return [
         { to: '/owner/dashboard', icon: 'bi-pie-chart-fill', label: 'Owner Overview' },
-        { to: '/owner/shops', icon: 'bi-shop-window', label: 'Shops Management' },
+        { to: '/owner/shops', icon: 'bi-shop-window', label: 'Store Management' },
         { to: '/owner/branches', icon: 'bi-building', label: 'Branches' },
         { to: '/owner/admins', icon: 'bi-shield-shaded', label: 'Admin Accounts' },
         { to: '/owner/billing', icon: 'bi-receipt', label: 'Billing Oversight' },
@@ -52,7 +55,8 @@ const Sidebar = ({ module }) => {
         { to: '/owner/expenses', icon: 'bi-cash-coin', label: 'Operating Expenses' },
         { to: '/owner/profits', icon: 'bi-currency-rupee', label: 'Profit & Loss (P&L)', badge: 'Financial' },
         { to: '/owner/reports', icon: 'bi-file-earmark-bar-graph-fill', label: 'Master Reports' },
-        { to: '/owner/settings', icon: 'bi-sliders', label: 'Master Settings' }
+        { to: '/owner/settings', icon: 'bi-sliders', label: 'Master Settings' },
+        { to: '/owner/help', icon: 'bi-question-diamond-fill', label: 'Owner Help Manual' }
       ];
     }
 

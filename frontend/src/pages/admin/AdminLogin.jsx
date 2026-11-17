@@ -46,7 +46,7 @@ const AdminLogin = () => {
                 <i className="bi bi-shield-check"></i>
               </div>
               <h3 className="fw-bold brand-font mb-1">Admin Management Portal</h3>
-              <p className="text-muted small">Daily shop management, inventory, staff, orders & reports</p>
+              <p className="text-muted small">Store operations, inventory, staff, orders & reports</p>
             </div>
 
             {/* Quick Demo Credentials */}

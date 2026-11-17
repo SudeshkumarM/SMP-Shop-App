@@ -10,15 +10,15 @@ const Footer = () => {
           <div className="col-lg-4 col-md-6">
             <div className="d-flex align-items-center gap-2 mb-3">
               <div className="bg-primary text-white rounded p-2 fw-bold fs-5">SMP</div>
-              <h5 className="mb-0 text-white brand-font">Shop Management Platform</h5>
+              <h5 className="mb-0 text-white brand-font">SMP</h5>
             </div>
             <p className="text-secondary small mb-3">
-              Next-generation scalable retail operating system and e-commerce platform. Initially powering <strong>SMP Elite Fashions</strong>, engineered for complete shopping mall and multi-shop expansion.
+              Next-generation retail operating system and e-commerce store. Powered by <strong>SMP</strong>, engineered for high-performance retail operations.
             </p>
             <div className="d-flex gap-2">
               <span className="badge bg-secondary">GST Compliant</span>
               <span className="badge bg-secondary">POS Enabled</span>
-              <span className="badge bg-secondary">Multi-Shop</span>
+              <span className="badge bg-secondary">Multi-Store</span>
             </div>
           </div>
 
@@ -38,8 +38,8 @@ const Footer = () => {
           <div className="col-lg-3 col-md-6 col-6">
             <h6 className="text-uppercase text-white-50 fw-bold mb-3 small">SMP Enterprise Portals</h6>
             <ul className="list-unstyled small d-flex flex-column gap-2 text-secondary">
-              <li><Link to="/staff/login" className="text-secondary text-decoration-none"><i className="bi bi-receipt me-1"></i>Staff POS & Billing Counter</Link></li>
-              <li><Link to="/admin/login" className="text-secondary text-decoration-none"><i className="bi bi-shield-lock me-1"></i>Admin Shop Management</Link></li>
+              <li><Link to="/staff/login" className="text-secondary text-decoration-none"><i className="bi bi-receipt me-1"></i>Staff POS & Billing</Link></li>
+              <li><Link to="/admin/login" className="text-secondary text-decoration-none"><i className="bi bi-shield-lock me-1"></i>Admin Portal</Link></li>
               <li><Link to="/owner/login" className="text-secondary text-decoration-none"><i className="bi bi-briefcase me-1"></i>Owner Multi-Store & Profit Hub</Link></li>
               <li><Link to="/customer/login" className="text-secondary text-decoration-none"><i className="bi bi-person me-1"></i>Customer Portal</Link></li>
               <li><Link to="/about" className="text-secondary text-decoration-none"><i className="bi bi-info-circle me-1"></i>Architecture & Scalability</Link></li>
@@ -71,7 +71,7 @@ const Footer = () => {
 
         <div className="d-flex flex-column flex-md-row justify-content-between align-items-center small text-secondary gap-2">
           <div>
-            &copy; {new Date().getFullYear()} SMP (Shop Management Platform). All rights reserved.
+            &copy; {new Date().getFullYear()} SMP. All rights reserved.
           </div>
           <div className="d-flex gap-3">
             <Link to="/about" className="text-secondary text-decoration-none">Terms</Link>

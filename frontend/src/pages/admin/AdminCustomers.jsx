@@ -90,6 +90,33 @@ const AdminCustomers = () => {
     }
   };
 
+  const handleToggleWhatsAppConsent = async (cust) => {
+    try {
+      const newConsent = !cust.consentPromotionalWhatsApp;
+      const res = await api.put(`/admin/customers/${cust._id}`, { consentPromotionalWhatsApp: newConsent });
+      if (res.data.success) {
+        addToast(`Promotional WhatsApp consent ${newConsent ? 'Enabled' : 'Disabled'} for ${cust.fullName}`, 'info');
+        fetchCustomers();
+      }
+    } catch (e) {
+      addToast('Failed to update WhatsApp consent', 'error');
+    }
+  };
+
+  const handleViewCustomerInvoices = async (cust) => {
+    try {
+      const res = await api.get(`/billing/customer-lookup/${cust.phone}`);
+      if (res.data.success) {
+        setSelectedCustHistory({
+          customer: cust,
+          invoices: res.data.previousInvoices || []
+        });
+      }
+    } catch (e) {
+      addToast('Error fetching customer invoices', 'error');
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to permanently delete this customer?')) return;
     try {
@@ -162,7 +189,7 @@ const AdminCustomers = () => {
                   <th>Contact Info</th>
                   <th>Total Orders</th>
                   <th>Total Spent</th>
-                  <th>Loyalty Pts</th>
+                  <th>WhatsApp Consent</th>
                   <th>Status</th>
                   <th className="text-end">Actions</th>
                 </tr>
@@ -170,7 +197,7 @@ const AdminCustomers = () => {
               <tbody>
                 {customers.map((c) => (
                   <tr key={c._id}>
-                    <td className="fw-bold text-primary">{c.customerId}</td>
+                    <td className="fw-bold text-primary font-monospace">{c.customerId}</td>
                     <td>
                       <div className="fw-semibold text-dark">{c.fullName}</div>
                       <small className="text-muted">
@@ -182,11 +209,17 @@ const AdminCustomers = () => {
                       <div className="text-muted"><i className="bi bi-envelope text-muted me-1"></i>{c.email}</div>
                     </td>
                     <td className="fw-bold">{c.totalPurchases || 0}</td>
-                    <td className="fw-bold text-success">₹{c.totalSpent?.toFixed(2) || '0.00'}</td>
+                    <td className="fw-bold text-success">₹{(c.totalSpend || c.totalSpent || 0).toFixed(2)}</td>
                     <td>
-                      <span className="badge bg-warning text-dark">
-                        ★ {c.loyaltyPoints || 0}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleWhatsAppConsent(c)}
+                        className={`btn btn-sm py-1 px-2 rounded-pill d-inline-flex align-items-center gap-1 ${c.consentPromotionalWhatsApp ? 'btn-success' : 'btn-outline-secondary'}`}
+                        title="Click to toggle promotional WhatsApp permission"
+                      >
+                        <i className="bi bi-whatsapp"></i>
+                        <span>{c.consentPromotionalWhatsApp ? 'Opted In' : 'No Consent'}</span>
+                      </button>
                     </td>
                     <td>
                       {c.isBlocked ? (
@@ -197,6 +230,13 @@ const AdminCustomers = () => {
                     </td>
                     <td className="text-end">
                       <div className="btn-group btn-group-sm">
+                        <button
+                          onClick={() => handleViewCustomerInvoices(c)}
+                          className="btn btn-outline-primary"
+                          title="View Past Bills & History"
+                        >
+                          <i className="bi bi-receipt"></i>
+                        </button>
                         <button
                           onClick={() => setEditingCustomer(c)}
                           className="btn btn-outline-secondary"
@@ -382,6 +422,66 @@ const AdminCustomers = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Invoices & Billing History Modal */}
+      {selectedCustHistory && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered modal-lg">
+            <div className="modal-content shadow-lg">
+              <div className="modal-header bg-light">
+                <h5 className="modal-title fw-bold brand-font">
+                  <i className="bi bi-clock-history text-primary me-2"></i>
+                  Customer Invoices: {selectedCustHistory.customer?.fullName} ({selectedCustHistory.customer?.phone})
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setSelectedCustHistory(null)}></button>
+              </div>
+              <div className="modal-body p-4">
+                {selectedCustHistory.invoices?.length === 0 ? (
+                  <div className="text-center py-4 text-muted">
+                    <p className="mb-0">No past POS or online bills found for this customer.</p>
+                  </div>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle small mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th>Invoice #</th>
+                          <th>Date</th>
+                          <th>Items</th>
+                          <th>Payment Mode</th>
+                          <th className="text-end">Final Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedCustHistory.invoices.map((inv) => (
+                          <tr key={inv._id}>
+                            <td className="font-monospace fw-bold text-primary">{inv.invoiceNumber}</td>
+                            <td>{new Date(inv.createdAt).toLocaleDateString('en-IN')}</td>
+                            <td>
+                              {inv.items?.map((it, idx) => (
+                                <span key={idx} className="badge bg-light text-dark border me-1">
+                                  {it.productName} ({it.quantity})
+                                </span>
+                              ))}
+                            </td>
+                            <td><span className="badge bg-secondary">{inv.paymentMethod}</span></td>
+                            <td className="text-end fw-bold">₹{inv.grandTotal?.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer bg-light">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedCustHistory(null)}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

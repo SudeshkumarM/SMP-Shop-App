@@ -2,7 +2,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 console.log('\n======================================================');
-console.log('  🛍️  Starting SMP (Shop Management Platform) Dev Servers');
+console.log('  🛍️  Starting SMP Application Servers');
 console.log('======================================================');
 console.log('  ▸ Backend API:      http://localhost:5000');
 console.log('  ▸ Frontend Store:   http://localhost:5172');

@@ -25,7 +25,7 @@ router.use(authorize('owner'));
 
 router.get('/dashboard-stats', getOwnerDashboardStats);
 
-// Shop Management
+// Store Management
 router.get('/shops', getShops);
 router.post('/shops', createShop);
 router.put('/shops/:id', updateShop);

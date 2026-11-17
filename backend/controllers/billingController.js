@@ -6,6 +6,7 @@ const Customer = require('../models/Customer');
 const Staff = require('../models/Staff');
 const Shop = require('../models/Shop');
 const User = require('../models/User');
+const WhatsAppService = require('../services/whatsappService');
 const { generateInvoiceBarcode } = require('../utils/generateBarcode');
 
 const generateInvoiceNumber = async (shopPrefix = 'SMP') => {
@@ -58,9 +59,12 @@ const createBillingTransaction = async (req, res) => {
       items, // [{ productId, size, colour, quantity, unitPrice, discountAmount, gstPercent }]
       discountType = 'flat',
       discountValue = 0,
+      deliveryCharge = 0,
       customerPhone,
       customerName,
       customerEmail,
+      consentPromotionalWhatsApp,
+      sendWhatsAppInvoice = false,
       paymentMethod = 'POS_CASH',
       paymentStatus = 'PAID'
     } = req.body;
@@ -85,11 +89,14 @@ const createBillingTransaction = async (req, res) => {
             customerId: uniqueId,
             fullName: customerName,
             phone: customerPhone.trim(),
-            email: customerEmail || `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 5)}@walkin.smp`
+            email: customerEmail || `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 5)}@walkin.smp`,
+            consentPromotionalWhatsApp: Boolean(consentPromotionalWhatsApp)
           });
         } catch (cErr) {
           customer = await Customer.findOne({ phone: customerPhone.trim() });
         }
+      } else if (customer && consentPromotionalWhatsApp !== undefined) {
+        customer.consentPromotionalWhatsApp = Boolean(consentPromotionalWhatsApp);
       }
     }
 
@@ -165,7 +172,8 @@ const createBillingTransaction = async (req, res) => {
     const netSubtotal = Math.max(0, subtotal - overallDiscount);
     const cgstAmount = Math.round((totalItemsGst / 2) * 100) / 100;
     const sgstAmount = Math.round((totalItemsGst / 2) * 100) / 100;
-    const grandTotal = Math.round((netSubtotal + totalItemsGst) * 100) / 100;
+    const deliveryAmount = Math.max(0, Number(deliveryCharge) || 0);
+    const grandTotal = Math.round((netSubtotal + totalItemsGst + deliveryAmount) * 100) / 100;
 
     const invoiceNumber = await generateInvoiceNumber(shop ? shop.settings.invoicePrefix : 'SMP');
     const orderNumber = `POS-${Date.now().toString().slice(-8)}`;
@@ -187,6 +195,8 @@ const createBillingTransaction = async (req, res) => {
       subtotal: Math.round(subtotal * 100) / 100,
       totalDiscount: Math.round(overallDiscount * 100) / 100,
       totalGst: Math.round(totalItemsGst * 100) / 100,
+      deliveryCharge: deliveryAmount,
+      shippingFee: deliveryAmount,
       grandTotal,
       totalCost: Math.round(totalCost * 100) / 100,
       paymentMethod,
@@ -219,6 +229,7 @@ const createBillingTransaction = async (req, res) => {
       items: billItems,
       subtotal: Math.round(subtotal * 100) / 100,
       totalDiscount: Math.round(overallDiscount * 100) / 100,
+      deliveryCharge: deliveryAmount,
       cgstAmount,
       sgstAmount,
       igstAmount: 0,
@@ -258,7 +269,33 @@ const createBillingTransaction = async (req, res) => {
       customer.totalPurchases = (customer.totalPurchases || 0) + 1;
       customer.totalSpend = (customer.totalSpend || 0) + grandTotal;
       customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(grandTotal / 100);
+      customer.lastPurchaseDate = new Date();
       await customer.save();
+    }
+
+    // Optional WhatsApp Invoice Notification
+    if (customerPhone && (sendWhatsAppInvoice || (shop && shop.settings && shop.settings.whatsappSettings && shop.settings.whatsappSettings.notifyOnInvoice))) {
+      try {
+        await WhatsAppService.sendMessage({
+          phone: customerPhone,
+          customerName: customerName || (customer ? customer.fullName : 'Customer'),
+          customerId: customer ? customer._id : null,
+          messageType: 'INVOICE',
+          templateName: 'invoice_confirmation',
+          content: WhatsAppService.buildInvoiceMessage({
+            customerName: customerName || (customer ? customer.fullName : 'Customer'),
+            invoiceNumber,
+            grandTotal,
+            itemCount: billItems.reduce((acc, i) => acc + i.quantity, 0),
+            paymentMethod
+          }),
+          shopId: shop ? shop._id : null,
+          sentBy: req.user._id,
+          requiresConsent: false
+        });
+      } catch (wErr) {
+        console.error('[WhatsApp POS Bill Error]', wErr.message);
+      }
     }
 
     res.status(201).json({
@@ -567,11 +604,75 @@ const deleteBill = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Lookup customer by phone for POS Billing, returning previous history & invoices
+ * @route   GET /api/billing/customer-lookup/:phone
+ * @access  Private (Staff, Admin, Owner)
+ */
+const lookupCustomerByPhone = async (req, res) => {
+  try {
+    const { phone } = req.params;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const customer = await Customer.findOne({
+      $or: [
+        { phone: cleanPhone },
+        { phone: { $regex: cleanPhone + '$' } }
+      ]
+    }).lean();
+
+    if (!customer) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        customer: null,
+        message: 'No existing customer record found with this phone number.'
+      });
+    }
+
+    // Fetch previous invoices
+    const previousInvoices = await Invoice.find({
+      $or: [
+        { customerId: customer._id },
+        { 'customerInfo.phone': { $regex: cleanPhone + '$' } }
+      ],
+      isDeleted: false
+    })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .select('invoiceNumber createdAt grandTotal subtotal totalDiscount items paymentMethod paymentStatus')
+    .lean();
+
+    res.status(200).json({
+      success: true,
+      exists: true,
+      customer: {
+        _id: customer._id,
+        customerId: customer.customerId,
+        fullName: customer.fullName,
+        phone: customer.phone,
+        email: customer.email,
+        totalPurchases: customer.totalPurchases || 0,
+        totalSpend: customer.totalSpend || 0,
+        lastPurchaseDate: customer.lastPurchaseDate || null,
+        loyaltyPoints: customer.loyaltyPoints || 0,
+        consentPromotionalWhatsApp: customer.consentPromotionalWhatsApp || false
+      },
+      previousInvoices
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   searchProductPOS,
   createBillingTransaction,
   getBillingHistory,
   getInvoiceById,
   updateBill,
-  deleteBill
+  deleteBill,
+  lookupCustomerByPhone
 };

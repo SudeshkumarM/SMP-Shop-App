@@ -167,6 +167,40 @@ async function runE2ETests() {
   console.log(`  11. Total Bills:          ${ownerDash.kpis.totalBills}`);
   console.log(`  12. Business Performance: ${ownerDash.kpis.businessPerformance}\n`);
 
+  // 7. Customer Phone Lookup & Delivery Charge Verification
+  console.log('--- Phase 7: Customer Phone Lookup & Delivery Settings ---');
+  const lookupRes = await fetch('http://localhost:5000/api/billing/customer-lookup/9876543210', {
+    headers: { 'Authorization': `Bearer ${tokens.staff}` }
+  }).then(r => r.json());
+  if (!lookupRes.success || !lookupRes.exists) throw new Error('Customer phone lookup failed');
+  console.log(`✓ Customer Lookup by Phone: "${lookupRes.customer.fullName}", Total Purchases: ${lookupRes.customer.totalPurchases}, Previous Invoices: ${lookupRes.previousInvoices.length}`);
+
+  const deliveryRes = await fetch('http://localhost:5000/api/admin/delivery-settings', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  console.log(`✓ Delivery Settings Retrieved: Standard Charge = ₹${deliveryRes.settings.deliveryCharge}, Free Threshold = ₹${deliveryRes.settings.freeDeliveryThreshold}`);
+
+  // 8. WhatsApp Integration & Coupon Notification Dispatch
+  console.log('--- Phase 8: WhatsApp Integration & Promotional Consent ---');
+  const couponRes = await fetch('http://localhost:5000/api/admin/coupons', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.admin}`
+    },
+    body: JSON.stringify({
+      code: 'TESTDISC25',
+      title: 'Summer 25% Off',
+      discountPercent: 25,
+      minPurchaseAmount: 500,
+      expiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      sendWhatsApp: true
+    })
+  }).then(r => r.json());
+  if (!couponRes.success) throw new Error(`Coupon creation failed: ${couponRes.message}`);
+  console.log(`✓ Coupon Created: ${couponRes.coupon.code} (${couponRes.coupon.discountPercent}% OFF)`);
+  console.log(`✓ WhatsApp Broadcast Logged: Sent/Simulated = ${couponRes.whatsAppSummary.sent}, Opted Out = ${couponRes.whatsAppSummary.optedOut}\n`);
+
   console.log('=== ALL END-TO-END FLOWS COMPLETED WITH 100% SUCCESS! ===');
 }
 

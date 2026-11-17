@@ -11,16 +11,24 @@ const StaffBilling = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [flagshipShirt, setFlagshipShirt] = useState(null);
 
   // Bill Items
   const [billItems, setBillItems] = useState([]);
 
-  // Customer Info
+  // Customer Info & Phone Lookup
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [lookupCustomer, setLookupCustomer] = useState(null);
+  const [previousInvoices, setPreviousInvoices] = useState([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [consentWhatsApp, setConsentWhatsApp] = useState(false);
+  const [sendWhatsAppInvoice, setSendWhatsAppInvoice] = useState(true);
 
-  // Discount
+  // Delivery & Discount
+  const [deliveryCharge, setDeliveryCharge] = useState(0);
+  const [hasDelivery, setHasDelivery] = useState(false);
   const [discountType, setDiscountType] = useState('flat'); // 'flat' or 'percent'
   const [discountValue, setDiscountValue] = useState(0);
 
@@ -31,12 +39,53 @@ const StaffBilling = () => {
   const [submitting, setSubmitting] = useState(false);
   const [createdInvoice, setCreatedInvoice] = useState(null);
 
-  // Focus search input on mount
+  // Fetch flagship product & delivery default on mount
   useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const prodRes = await api.get('/products');
+        if (prodRes.data.success && prodRes.data.products?.length > 0) {
+          setFlagshipShirt(prodRes.data.products[0]);
+        }
+      } catch (err) {
+        console.error('Error fetching initial POS products:', err.message);
+      }
+    };
+    fetchInitialData();
+
     if (searchInputRef.current) {
       searchInputRef.current.focus();
     }
   }, []);
+
+  // Debounced Customer Phone Lookup
+  useEffect(() => {
+    const cleanPhone = customerPhone.replace(/\D/g, '');
+    if (cleanPhone.length === 10) {
+      const delay = setTimeout(async () => {
+        try {
+          const res = await api.get(`/billing/customer-lookup/${cleanPhone}`);
+          if (res.data.success && res.data.exists && res.data.customer) {
+            setLookupCustomer(res.data.customer);
+            setCustomerName(res.data.customer.fullName || '');
+            setCustomerEmail(res.data.customer.email || '');
+            setConsentWhatsApp(res.data.customer.consentPromotionalWhatsApp || false);
+            setPreviousInvoices(res.data.previousInvoices || []);
+            addToast(`Retrieved purchase history for ${res.data.customer.fullName}!`, 'info');
+          } else {
+            setLookupCustomer(null);
+            setPreviousInvoices([]);
+          }
+        } catch (e) {
+          console.error('Phone lookup failed:', e.message);
+        }
+      }, 350);
+      return () => clearTimeout(delay);
+    } else {
+      setLookupCustomer(null);
+      setPreviousInvoices([]);
+    }
+  }, [customerPhone]);
 
   // Search products when query changes
   useEffect(() => {
@@ -58,7 +107,7 @@ const StaffBilling = () => {
       } else {
         setSearchResults([]);
       }
-    }, 300);
+    }, 250);
 
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
@@ -74,7 +123,6 @@ const StaffBilling = () => {
           params: { query: searchQuery.trim() }
         });
         if (res.data.success && res.data.products?.length > 0) {
-          // If exact barcode/sku match or first match, add directly to bill
           addProductToBill(res.data.products[0]);
           setSearchQuery('');
           setSearchResults([]);
@@ -104,9 +152,9 @@ const StaffBilling = () => {
       updated[existingIdx].quantity += 1;
       setBillItems(updated);
     } else {
-      const defaultSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'Standard';
-      const defaultColor = product.colours && product.colours.length > 0 ? product.colours[0] : 'Default';
-      const unitPrice = product.sellingPrice || product.originalPrice;
+      const defaultSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'L';
+      const defaultColor = product.colours && product.colours.length > 0 ? product.colours[0] : 'Classic White';
+      const unitPrice = product.sellingPrice || product.originalPrice || 500;
       const gstPercent = product.gstPercent || 5;
 
       setBillItems([
@@ -170,7 +218,8 @@ const StaffBilling = () => {
     }
 
     const netSubtotal = Math.max(0, subtotal - overallDiscount);
-    const grandTotal = Math.round((netSubtotal + totalGst) * 100) / 100;
+    const delivFee = hasDelivery ? Math.max(0, Number(deliveryCharge) || 0) : 0;
+    const grandTotal = Math.round((netSubtotal + totalGst + delivFee) * 100) / 100;
 
     return {
       subtotal: Math.round(subtotal * 100) / 100,
@@ -178,6 +227,7 @@ const StaffBilling = () => {
       cgst: Math.round((totalGst / 2) * 100) / 100,
       sgst: Math.round((totalGst / 2) * 100) / 100,
       overallDiscount: Math.round(overallDiscount * 100) / 100,
+      deliveryFee: delivFee,
       grandTotal
     };
   };
@@ -187,7 +237,17 @@ const StaffBilling = () => {
   // Complete Billing
   const handleCompleteBilling = async () => {
     if (billItems.length === 0) {
-      addToast('Bill is empty. Please add products first.', 'warning');
+      addToast('Bill is empty. Please select products first.', 'warning');
+      return;
+    }
+
+    if (!customerPhone || customerPhone.length < 10) {
+      addToast('Please enter a valid 10-digit Customer Mobile Number.', 'warning');
+      return;
+    }
+
+    if (!customerName.trim()) {
+      addToast('Please enter Customer Full Name.', 'warning');
       return;
     }
 
@@ -197,22 +257,30 @@ const StaffBilling = () => {
         items: billItems,
         discountType,
         discountValue,
-        customerName: customerName || 'Walk-in Customer',
-        customerPhone: customerPhone || '9876543210',
-        customerEmail,
+        deliveryCharge: totals.deliveryFee,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail.trim(),
+        consentPromotionalWhatsApp: consentWhatsApp,
+        sendWhatsAppInvoice,
         paymentMethod,
         paymentStatus: 'PAID'
       });
 
       if (res.data.success) {
-        addToast(res.data.message, 'success');
+        addToast(res.data.message || 'Invoice generated successfully!', 'success');
         setCreatedInvoice(res.data.invoice);
-        // Clear current bill
+
+        // Reset state for next customer
         setBillItems([]);
         setCustomerName('');
         setCustomerPhone('');
         setCustomerEmail('');
+        setLookupCustomer(null);
+        setPreviousInvoices([]);
         setDiscountValue(0);
+        setHasDelivery(false);
+        setDeliveryCharge(0);
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Billing submission failed', 'error');
@@ -224,8 +292,38 @@ const StaffBilling = () => {
   return (
     <div className="fade-in">
       <div className="row g-3">
-        {/* Left Column: Product Search & Bill Items Table */}
+        {/* Left Column: Product Selection & Current Bill */}
         <div className="col-lg-8">
+          {/* Quick Add Bar for Flagship Shirt */}
+          {flagshipShirt && (
+            <div className="smp-card p-3 bg-white mb-3 shadow-sm border-primary border-opacity-50 d-flex flex-wrap align-items-center justify-content-between gap-3">
+              <div className="d-flex align-items-center gap-3">
+                <img
+                  src={flagshipShirt.images && flagshipShirt.images[0] ? flagshipShirt.images[0] : 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=150&q=80'}
+                  alt={flagshipShirt.name}
+                  className="rounded-3"
+                  style={{ width: '50px', height: '50px', objectFit: 'cover' }}
+                />
+                <div>
+                  <div className="fw-bold text-dark fs-6 d-flex align-items-center gap-2">
+                    {flagshipShirt.name}
+                    <span className="badge bg-primary-subtle text-primary">₹{flagshipShirt.sellingPrice} + 5% GST</span>
+                  </div>
+                  <small className="text-muted">
+                    SKU: {flagshipShirt.sku} | Barcode: {flagshipShirt.barcode} | In Stock: <strong>{flagshipShirt.availableQuantity} units</strong>
+                  </small>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => addProductToBill(flagshipShirt)}
+                className="btn btn-primary fw-bold px-3 py-2 rounded-3 d-flex align-items-center gap-2"
+              >
+                <i className="bi bi-plus-circle-fill"></i> Add Shirt to Bill
+              </button>
+            </div>
+          )}
+
           {/* Barcode & Search Bar */}
           <div className="smp-card p-3 bg-white mb-3 shadow-sm position-relative">
             <div className="input-group">
@@ -236,7 +334,7 @@ const StaffBilling = () => {
                 ref={searchInputRef}
                 type="text"
                 className="form-control pos-search-input"
-                placeholder="Scan Barcode or type Product Name / SKU / Brand (Press Enter to add)..."
+                placeholder="Scan Barcode (890123450001) or type SKU / Shirt (Press Enter)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
@@ -272,7 +370,6 @@ const StaffBilling = () => {
                     <div className="d-flex align-items-center gap-2">
                       <span className="badge bg-secondary">{prod.sku}</span>
                       <span className="fw-semibold text-dark">{prod.name}</span>
-                      <small className="text-muted">({prod.brand})</small>
                     </div>
                     <div className="d-flex align-items-center gap-3">
                       <span className="badge bg-success-subtle text-success">
@@ -290,11 +387,11 @@ const StaffBilling = () => {
           </div>
 
           {/* Current Bill Items Table */}
-          <div className="smp-card p-3 bg-white mb-3 shadow-sm" style={{ minHeight: '440px' }}>
+          <div className="smp-card p-3 bg-white mb-3 shadow-sm" style={{ minHeight: '380px' }}>
             <div className="d-flex justify-content-between align-items-center mb-3 border-bottom pb-2">
               <h5 className="fw-bold brand-font mb-0 d-flex align-items-center gap-2">
                 <i className="bi bi-receipt text-primary"></i> Current Bill Line Items
-                <span className="badge bg-primary-subtle text-primary rounded-pill fs-6 px-2 py-0">
+                <span className="badge bg-primary text-white rounded-pill fs-6 px-2 py-0">
                   {billItems.length}
                 </span>
               </h5>
@@ -313,7 +410,7 @@ const StaffBilling = () => {
               <div className="text-center py-5 text-muted">
                 <i className="bi bi-cart3 display-4 text-secondary mb-2 d-block"></i>
                 <h6>POS Bill is Empty</h6>
-                <p className="small text-muted">Scan item barcode or search products above to start billing.</p>
+                <p className="small text-muted">Click "+ Add Shirt to Bill" above or scan barcode to add item.</p>
               </div>
             ) : (
               <div className="table-responsive">
@@ -321,17 +418,17 @@ const StaffBilling = () => {
                   <thead>
                     <tr>
                       <th style={{ width: '4%' }}>#</th>
-                      <th style={{ width: '38%' }}>Product Details</th>
-                      <th className="text-end" style={{ width: '14%' }}>Unit Price</th>
+                      <th style={{ width: '36%' }}>Product Details</th>
+                      <th className="text-end" style={{ width: '15%' }}>Unit Price</th>
                       <th className="text-center" style={{ width: '18%' }}>Quantity</th>
                       <th className="text-end" style={{ width: '10%' }}>GST</th>
-                      <th className="text-end" style={{ width: '16%' }}>Total</th>
-                      <th style={{ width: '5%' }}></th>
+                      <th className="text-end" style={{ width: '15%' }}>Total</th>
+                      <th style={{ width: '2%' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {billItems.map((item, idx) => {
-                      const itemTotal = (item.unitPrice * item.quantity);
+                      const itemTotal = item.unitPrice * item.quantity;
                       const itemGst = (itemTotal * (item.gstPercent || 5)) / 100;
                       return (
                         <tr key={idx}>
@@ -383,45 +480,159 @@ const StaffBilling = () => {
           </div>
         </div>
 
-        {/* Right Column: Customer Details, Discounts, Payment & Complete Bill */}
+        {/* Right Column: Customer Details, Delivery, Discounts & Complete Bill */}
         <div className="col-lg-4">
-          {/* Customer Lookup Card */}
-          <div className="smp-card p-3 bg-white mb-3 shadow-sm">
-            <h6 className="fw-bold brand-font mb-2 d-flex align-items-center gap-2">
-              <i className="bi bi-person-fill text-primary"></i> Customer Information
-            </h6>
+          {/* Customer Details & History Lookup Card */}
+          <div className="smp-card p-3 bg-white mb-3 shadow-sm border-start border-4 border-primary">
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <h6 className="fw-bold brand-font mb-0 d-flex align-items-center gap-2">
+                <i className="bi bi-person-fill text-primary"></i> Customer Details
+              </h6>
+              {lookupCustomer ? (
+                <span className="badge bg-success-subtle text-success fw-bold">
+                  <i className="bi bi-check2-circle me-1"></i> Existing Customer
+                </span>
+              ) : customerPhone.length === 10 ? (
+                <span className="badge bg-info-subtle text-info fw-bold">
+                  New Customer
+                </span>
+              ) : null}
+            </div>
+
             <div className="row g-2">
+              {/* Customer Mobile (Required) */}
               <div className="col-12">
-                <input
-                  type="tel"
-                  placeholder="Customer Mobile (e.g. 9876543210)"
-                  className="form-control form-control-sm"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                />
+                <label className="form-label small fw-bold text-muted text-uppercase mb-1">
+                  Customer Mobile Number <span className="text-danger">*</span>
+                </label>
+                <div className="input-group input-group-sm">
+                  <span className="input-group-text bg-light">+91</span>
+                  <input
+                    type="tel"
+                    placeholder="Enter 10-digit Mobile"
+                    className="form-control form-control-sm fw-bold"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  />
+                </div>
               </div>
+
+              {/* Customer Full Name (Required) */}
               <div className="col-12">
+                <label className="form-label small fw-bold text-muted text-uppercase mb-1">
+                  Customer Full Name <span className="text-danger">*</span>
+                </label>
                 <input
                   type="text"
-                  placeholder="Customer Full Name (Optional)"
-                  className="form-control form-control-sm"
+                  placeholder="Enter Customer Name"
+                  className="form-control form-control-sm fw-semibold"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                 />
               </div>
+
+              {/* Previous History Banner (If Returning Customer) */}
+              {lookupCustomer && (
+                <div className="col-12 mt-2">
+                  <div className="p-2 bg-light rounded-3 border">
+                    <div className="d-flex justify-content-between small mb-1">
+                      <span className="text-muted">Total Purchases:</span>
+                      <strong className="text-dark">{lookupCustomer.totalPurchases} bills</strong>
+                    </div>
+                    <div className="d-flex justify-content-between small mb-1">
+                      <span className="text-muted">Lifetime Spend:</span>
+                      <strong className="text-success">₹{lookupCustomer.totalSpend.toFixed(2)}</strong>
+                    </div>
+                    {previousInvoices.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowHistoryModal(true)}
+                        className="btn btn-outline-primary btn-sm w-100 py-1 mt-1 small"
+                      >
+                        <i className="bi bi-clock-history me-1"></i> View {previousInvoices.length} Past Invoices
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Promotional WhatsApp Consent */}
+              <div className="col-12 mt-2">
+                <div className="form-check form-switch small">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="consentCheck"
+                    checked={consentWhatsApp}
+                    onChange={(e) => setConsentWhatsApp(e.target.checked)}
+                  />
+                  <label className="form-check-label text-muted" htmlFor="consentCheck">
+                    Receive WhatsApp Offers & Discounts (Consent)
+                  </label>
+                </div>
+              </div>
+
+              {/* Send WhatsApp Invoice Checkbox */}
+              <div className="col-12">
+                <div className="form-check form-switch small">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="sendBillWhatsApp"
+                    checked={sendWhatsAppInvoice}
+                    onChange={(e) => setSendWhatsAppInvoice(e.target.checked)}
+                  />
+                  <label className="form-check-label text-success fw-semibold" htmlFor="sendBillWhatsApp">
+                    <i className="bi bi-whatsapp me-1"></i> Send WhatsApp Bill to Customer
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Bill Calculation & Discounts */}
+          {/* Delivery & Billing Summary */}
           <div className="smp-card p-3 bg-white mb-3 shadow-sm">
             <h6 className="fw-bold brand-font mb-3">Billing Summary</h6>
 
+            {/* Delivery Charge Toggle */}
+            <div className="p-2 bg-light rounded-3 border mb-3">
+              <div className="form-check form-switch small mb-2">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="deliveryToggle"
+                  checked={hasDelivery}
+                  onChange={(e) => {
+                    setHasDelivery(e.target.checked);
+                    if (e.target.checked && deliveryCharge === 0) setDeliveryCharge(50);
+                  }}
+                />
+                <label className="form-check-label fw-semibold text-dark" htmlFor="deliveryToggle">
+                  <i className="bi bi-truck me-1"></i> Express Home Delivery
+                </label>
+              </div>
+              {hasDelivery && (
+                <div className="input-group input-group-sm">
+                  <span className="input-group-text">₹ Charge</span>
+                  <input
+                    type="number"
+                    min="0"
+                    className="form-control text-end fw-bold"
+                    placeholder="50"
+                    value={deliveryCharge}
+                    onChange={(e) => setDeliveryCharge(Number(e.target.value))}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Line Item Breakdown */}
             <div className="d-flex justify-content-between py-1 small">
               <span className="text-muted">Subtotal:</span>
               <span className="fw-semibold">₹{totals.subtotal.toFixed(2)}</span>
             </div>
 
-            {/* Custom Bill Discount */}
+            {/* Discount Section */}
             <div className="my-2 p-2 bg-light rounded-2 border">
               <div className="d-flex align-items-center justify-content-between mb-1">
                 <span className="small fw-semibold text-secondary">Apply Discount:</span>
@@ -468,10 +679,17 @@ const StaffBilling = () => {
               <span>₹{totals.sgst.toFixed(2)}</span>
             </div>
 
+            {hasDelivery && (
+              <div className="d-flex justify-content-between py-1 small text-primary">
+                <span>Delivery Charge:</span>
+                <span className="fw-bold">+₹{totals.deliveryFee.toFixed(2)}</span>
+              </div>
+            )}
+
             <hr className="my-2" />
 
             <div className="d-flex justify-content-between py-2 fs-5 fw-bold text-dark">
-              <span>Grand Total:</span>
+              <span>Final Amount:</span>
               <span className="text-primary fs-4">₹{totals.grandTotal.toFixed(2)}</span>
             </div>
 
@@ -534,17 +752,71 @@ const StaffBilling = () => {
               {submitting ? (
                 <>
                   <span className="spinner-border spinner-border-sm me-2"></span>
-                  Processing Sale...
+                  Generating Bill...
                 </>
               ) : (
-                `Complete Sale (₹${totals.grandTotal.toFixed(2)})`
+                `Generate Bill (₹${totals.grandTotal.toFixed(2)})`
               )}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Instant Thermal / Tax Invoice Modal */}
+      {/* Customer Past Purchase History Modal */}
+      {showHistoryModal && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-dialog-centered modal-lg">
+            <div className="modal-content shadow-lg">
+              <div className="modal-header bg-light">
+                <h5 className="modal-title fw-bold brand-font">
+                  <i className="bi bi-clock-history text-primary me-2"></i>
+                  Previous Purchases: {lookupCustomer?.fullName} ({customerPhone})
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setShowHistoryModal(false)}></button>
+              </div>
+              <div className="modal-body p-4">
+                <div className="table-responsive">
+                  <table className="table table-hover align-middle">
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Date</th>
+                        <th>Items</th>
+                        <th>Payment Mode</th>
+                        <th className="text-end">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previousInvoices.map((inv) => (
+                        <tr key={inv._id}>
+                          <td className="font-monospace fw-bold text-primary">{inv.invoiceNumber}</td>
+                          <td>{new Date(inv.createdAt).toLocaleDateString('en-IN')}</td>
+                          <td>
+                            {inv.items?.map((it, idx) => (
+                              <span key={idx} className="badge bg-light text-dark border me-1">
+                                {it.productName} ({it.quantity})
+                              </span>
+                            ))}
+                          </td>
+                          <td><span className="badge bg-secondary">{inv.paymentMethod}</span></td>
+                          <td className="text-end fw-bold">₹{inv.grandTotal.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="modal-footer bg-light">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowHistoryModal(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Instant Tax Invoice & Print Modal */}
       {createdInvoice && (
         <InvoicePrintModal
           invoice={createdInvoice}

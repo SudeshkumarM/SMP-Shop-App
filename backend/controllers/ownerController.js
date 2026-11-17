@@ -173,7 +173,7 @@ const getOwnerDashboardStats = async (req, res) => {
 
 /**
  * ====================================================
- * SHOP MANAGEMENT (OWNER)
+ * STORE MANAGEMENT (OWNER)
  * ====================================================
  */
 const getShops = async (req, res) => {

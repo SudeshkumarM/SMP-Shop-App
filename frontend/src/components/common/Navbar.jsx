@@ -39,7 +39,7 @@ const Navbar = () => {
               SMP
             </div>
             <small className="text-muted fw-semibold" style={{ fontSize: '0.68rem', letterSpacing: '0.8px' }}>
-              SHOP MANAGEMENT PLATFORM
+              PREMIUM STORE
             </small>
           </div>
         </Link>
