@@ -7,7 +7,13 @@ const path = require('path');
 const dotenv = require('dotenv');
 const rateLimit = require('express-rate-limit');
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+require('./config/supabase');
+
+if (!process.env.JWT_SECRET?.trim() || process.env.JWT_SECRET.startsWith('YOUR_')) {
+  throw new Error('[Auth] Required environment variable JWT_SECRET is missing or still a placeholder.');
+}
 
 const connectDB = require('./config/db');
 const { errorHandler } = require('./middleware/errorMiddleware');

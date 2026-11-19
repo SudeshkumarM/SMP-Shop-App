@@ -20,7 +20,7 @@ const generateToken = (user) => {
       shopId: user.shopId,
       branchId: user.branchId
     },
-    process.env.JWT_SECRET || 'smp_super_secure_jwt_secret_key_2026_production_ready',
+    process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE || '7d' }
   );
 };

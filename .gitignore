@@ -16,6 +16,11 @@ build/
 backend/.env*
 frontend/.env*
 
+# Keep example templates trackable while ignoring real environment files.
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
 # Database files
 backend/data/
 backend/data/db/
