@@ -4,8 +4,13 @@ const fs = require('fs');
 const path = require('path');
 
 let mongodProcess = null;
+const connectionCache = global.__smpMongoConnection || { connection: null, promise: null };
+global.__smpMongoConnection = connectionCache;
 
 const ensureDbDir = () => {
+  if (process.env.VERCEL) {
+    throw new Error('Local MongoDB startup is disabled in Vercel deployments.');
+  }
   const dbDir = path.join(__dirname, '..', 'data', 'db');
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
@@ -14,6 +19,7 @@ const ensureDbDir = () => {
 };
 
 const trySpawnMongod = async () => {
+  if (process.env.VERCEL) return;
   const defaultPath = 'C:\\Program Files\\MongoDB\\Server\\8.2\\bin\\mongod.exe';
   if (fs.existsSync(defaultPath)) {
     const dbDir = ensureDbDir();
@@ -44,25 +50,36 @@ const connectDB = async () => {
     socketTimeoutMS: 45000
   };
 
-  try {
-    const conn = await mongoose.connect(uri, poolOptions);
-    console.log(`[Database] MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
-  } catch (error) {
-    console.warn(`[Database] Initial connection to ${uri} failed: ${error.message}`);
-    // Attempt auto-spawn if running on Windows and local mongod is available
-    if (process.platform === 'win32') {
-      await trySpawnMongod();
-      try {
-        const conn = await mongoose.connect(uri, poolOptions);
-        console.log(`[Database] MongoDB Connected after auto-spawn: ${conn.connection.host}/${conn.connection.name}`);
-        return;
-      } catch (retryErr) {
-        console.error(`[Database] Retry failed: ${retryErr.message}`);
-      }
+  const connect = async () => {
+    if (connectionCache.connection?.connection?.readyState === 1) {
+      return connectionCache.connection;
     }
-    console.error(`[Database] Error: Could not connect to MongoDB.`);
-    console.error(`Please ensure MongoDB is running at ${uri}`);
-    process.exit(1);
+
+    if (!connectionCache.promise) {
+      connectionCache.promise = mongoose.connect(uri, poolOptions);
+    }
+
+    try {
+      connectionCache.connection = await connectionCache.promise;
+      console.log(`[Database] MongoDB Connected: ${connectionCache.connection.connection.host}/${connectionCache.connection.connection.name}`);
+      return connectionCache.connection;
+    } catch (error) {
+      connectionCache.promise = null;
+      throw error;
+    }
+  };
+
+  try {
+    return await connect();
+  } catch (error) {
+    console.error(`[Database] MongoDB connection failed: ${error.message}`);
+
+    if (process.platform === 'win32' && !process.env.VERCEL) {
+      await trySpawnMongod();
+      return connect();
+    }
+
+    throw error;
   }
 };
 

@@ -2,69 +2,212 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const { Readable } = require('stream');
+const cloudinary = require('cloudinary').v2;
 const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
-
+const useCloudinary = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+const cloudinaryConfigured = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+const maxFileSize = 5 * 1024 * 1024;
 const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
+
+if (useCloudinary && cloudinaryConfigured) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+  });
+} else if (!useCloudinary && !fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    cb(null, `smp_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`);
+const allowedMimeTypes = {
+  '.gif': ['image/gif'],
+  '.jpeg': ['image/jpeg', 'image/jpg'],
+  '.jpg': ['image/jpeg', 'image/jpg'],
+  '.png': ['image/png'],
+  '.webp': ['image/webp']
+};
+
+class UploadValidationError extends Error {}
+
+const fileFilter = (req, file, callback) => {
+  const extension = path.extname(file.originalname).toLowerCase();
+  const acceptedMimeTypes = allowedMimeTypes[extension];
+
+  if (acceptedMimeTypes && acceptedMimeTypes.includes(file.mimetype.toLowerCase())) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new UploadValidationError('Only JPEG, JPG, PNG, WEBP, and GIF image files are permitted.'));
+};
+
+const localStorage = multer.diskStorage({
+  destination: (req, file, callback) => callback(null, uploadDir),
+  filename: (req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    callback(null, `smp_${Date.now()}_${crypto.randomBytes(8).toString('hex')}${extension}`);
   }
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowed = /jpeg|jpg|png|webp|gif/;
-  const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-  const mime = allowed.test(file.mimetype);
-  if (ext && mime) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image files (jpeg, jpg, png, webp) are permitted!'), false);
-  }
-};
-
 const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB per file
+  storage: useCloudinary ? multer.memoryStorage() : localStorage,
+  limits: { fileSize: maxFileSize, files: 8 },
   fileFilter
 });
 
-// Single image upload
-router.post('/', protect, upload.single('image'), (req, res) => {
+const uploadToCloudinary = (file) => new Promise((resolve, reject) => {
+  const publicId = `smp_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+  const stream = cloudinary.uploader.upload_stream({
+    folder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'smp-products',
+    public_id: publicId,
+    resource_type: 'image',
+    overwrite: false
+  }, (error, result) => {
+    if (error) {
+      reject(error);
+      return;
+    }
+
+    if (!result?.secure_url || !result.public_id) {
+      reject(new Error('Cloudinary returned an incomplete image upload result.'));
+      return;
+    }
+
+    resolve({
+      url: result.secure_url,
+      filename: result.public_id,
+      publicId: result.public_id
+    });
+  });
+
+  stream.on('error', reject);
+  Readable.from([file.buffer]).pipe(stream);
+});
+
+const storeFile = async (file) => {
+  if (!useCloudinary) {
+    return {
+      url: `/uploads/${file.filename}`,
+      filename: file.filename
+    };
+  }
+
+  return uploadToCloudinary(file);
+};
+
+const removeCloudinaryFile = async (file) => {
+  try {
+    const result = await cloudinary.uploader.destroy(file.publicId, { resource_type: 'image' });
+    if (result.result !== 'ok' && result.result !== 'not found') {
+      console.error(`[Upload] Cloudinary cleanup did not complete for ${file.publicId}.`);
+    }
+  } catch (error) {
+    console.error(`[Upload] Cloudinary cleanup failed for ${file.publicId}:`, error.message);
+  }
+};
+
+const storeMultipleFiles = async (files) => {
+  const storedFiles = [];
+
+  try {
+    for (const file of files) {
+      storedFiles.push(await storeFile(file));
+    }
+    return storedFiles;
+  } catch (error) {
+    if (useCloudinary) {
+      await Promise.all(storedFiles.map(removeCloudinaryFile));
+    }
+    throw error;
+  }
+};
+
+const sendUploadError = (error, res, next) => {
+  if (error instanceof multer.MulterError) {
+    const isSizeError = error.code === 'LIMIT_FILE_SIZE';
+    const message = isSizeError
+      ? 'Each image must be 5 MB or smaller.'
+      : error.code === 'LIMIT_FILE_COUNT'
+        ? 'You can upload a maximum of 8 images at a time.'
+        : error.message;
+    return res.status(isSizeError ? 413 : 400).json({ success: false, message });
+  }
+
+  if (error instanceof UploadValidationError) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+
+  if (useCloudinary) {
+    console.error('[Upload] Cloudinary image upload failed:', error.message);
+    return res.status(502).json({
+      success: false,
+      message: 'Image storage is temporarily unavailable. Please try again.'
+    });
+  }
+
+  return next(error);
+};
+
+const runUpload = (middleware, handler) => (req, res, next) => {
+  middleware(req, res, (error) => {
+    if (error) {
+      sendUploadError(error, res, next);
+      return;
+    }
+
+    Promise.resolve(handler(req, res)).catch((uploadError) => {
+      sendUploadError(uploadError, res, next);
+    });
+  });
+};
+
+const requireCloudinaryConfig = (req, res, next) => {
+  if (useCloudinary && !cloudinaryConfigured) {
+    return res.status(503).json({
+      success: false,
+      message: 'Image storage is not configured. Set the required Cloudinary environment variables.'
+    });
+  }
+  return next();
+};
+
+router.post('/', protect, requireCloudinaryConfig, runUpload(upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Please upload an image file' });
   }
 
-  const fileUrl = `/uploads/${req.file.filename}`;
-  res.status(200).json({
+  const storedFile = await storeFile(req.file);
+  return res.status(200).json({
     success: true,
-    url: fileUrl,
-    filename: req.file.filename
+    url: storedFile.url,
+    imageUrl: storedFile.url,
+    filename: storedFile.filename
   });
-});
+}));
 
-// Multiple images upload (up to 8 images)
-router.post('/multiple', protect, upload.array('images', 8), (req, res) => {
+router.post('/multiple', protect, requireCloudinaryConfig, runUpload(upload.array('images', 8), async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ success: false, message: 'Please select at least one image file' });
   }
 
-  const urls = req.files.map(file => `/uploads/${file.filename}`);
-  res.status(200).json({
+  const storedFiles = await storeMultipleFiles(req.files);
+  const urls = storedFiles.map((file) => file.url);
+
+  return res.status(200).json({
     success: true,
-    count: req.files.length,
+    count: storedFiles.length,
     urls,
-    files: req.files.map(f => ({ url: `/uploads/${f.filename}`, filename: f.filename }))
+    imageUrls: urls,
+    files: storedFiles.map((file) => ({ url: file.url, filename: file.filename }))
   });
-});
+}));
 
 module.exports = router;

@@ -28,9 +28,10 @@ const settingsRoutes = require('./routes/settingsRoutes');
 
 const app = express();
 const server = http.createServer(app);
+const isVercel = Boolean(process.env.VERCEL);
 
 // Initialize Socket.IO for Real-time Synchronization
-const io = new Server(server, {
+const io = isVercel ? null : new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
@@ -39,12 +40,11 @@ const io = new Server(server, {
 
 app.set('io', io);
 
-io.on('connection', (socket) => {
-  socket.on('disconnect', () => {});
-});
-
-// Connect to MongoDB
-connectDB();
+if (io) {
+  io.on('connection', (socket) => {
+    socket.on('disconnect', () => {});
+  });
+}
 
 // Middlewares
 app.use(cors({
@@ -70,6 +70,10 @@ app.get('/api/health', (req, res) => {
     platform: 'SMP',
     timestamp: new Date().toISOString()
   });
+});
+
+app.use('/api', (req, res, next) => {
+  connectDB().then(() => next()).catch(next);
 });
 
 // API Routes
@@ -132,9 +136,18 @@ server.on('error', (err) => {
             } catch (e) {}
           }
           setTimeout(() => {
-            server.listen(PORT, () => {
-              console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-            });
+            if (!isVercel) {
+              connectDB()
+                .then(() => {
+                  server.listen(PORT, () => {
+                    console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+                  });
+                })
+                .catch((error) => {
+                  console.error('[SMP Server] Database startup failed:', error.message);
+                  process.exit(1);
+                });
+            }
           }, 800);
           return;
         }
@@ -150,10 +163,14 @@ server.on('error', (err) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+if (!isVercel) {
+  server.listen(PORT, () => {
+    console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  });
+}
 
 process.on('unhandledRejection', (err) => {
   console.error(`[Server Error] Unhandled rejection: ${err.message}`);
 });
+
+module.exports = app;
