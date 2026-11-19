@@ -24,6 +24,7 @@ const {
   getWhatsAppSettings,
   updateWhatsAppSettings,
   getWhatsAppLogs,
+  getAdminOperationalAlerts,
   getCoupons,
   createCoupon,
   updateCoupon,
@@ -68,6 +69,7 @@ router.put('/gst-settings', updateGstSettings);
 router.get('/whatsapp-settings', getWhatsAppSettings);
 router.put('/whatsapp-settings', updateWhatsAppSettings);
 router.get('/whatsapp-logs', getWhatsAppLogs);
+router.get('/operational-alerts', getAdminOperationalAlerts);
 
 // Coupons & Offers
 router.get('/coupons', getCoupons);

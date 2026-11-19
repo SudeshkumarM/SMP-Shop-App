@@ -8,12 +8,12 @@ const ProtectedRoute = ({ allowedRoles = [], children }) => {
 
   if (loading) {
     return (
-      <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
+      <div className="d-flex align-items-center justify-content-center vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
         <div className="text-center">
           <div className="spinner-border text-primary mb-3" role="status" style={{ width: '3rem', height: '3rem' }}>
             <span className="visually-hidden">Loading...</span>
           </div>
-          <div className="fw-semibold text-secondary">Verifying Secure Access...</div>
+          <div className="fw-semibold text-white">Verifying Secure Access...</div>
         </div>
       </div>
     );
@@ -41,12 +41,12 @@ const ProtectedRoute = ({ allowedRoles = [], children }) => {
   // Role authorization check
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     return (
-      <div className="container py-5 text-center">
-        <div className="smp-card p-5 mx-auto" style={{ maxWidth: '500px' }}>
+      <div className="d-flex align-items-center justify-content-center vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
+        <div className="smp-card p-5 mx-auto text-center" style={{ maxWidth: '500px', backgroundColor: '#1E293B', border: '1px solid #334155' }}>
           <i className="bi bi-shield-x text-danger display-1 mb-3"></i>
-          <h3 className="fw-bold">Access Denied</h3>
-          <p className="text-muted">
-            Your current account role (<strong>{user.role}</strong>) does not have authorization to view this module.
+          <h3 className="fw-bold text-white">Access Denied</h3>
+          <p className="text-slate-300" style={{ color: '#CBD5E1' }}>
+            Your current account role (<strong className="text-white">{user.role}</strong>) does not have authorization to view this module.
           </p>
           <div className="mt-4">
             <Navigate to="/" replace />

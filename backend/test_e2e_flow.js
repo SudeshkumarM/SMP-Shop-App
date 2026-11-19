@@ -62,13 +62,14 @@ async function runE2ETests() {
   tokens.owner = loginOwner.token;
   console.log(`✓ Owner Login via Username: "${loginOwner.user.username}" (Master Authority) -> ${loginOwner.welcomeMessage}\n`);
 
-  // 2. Initial Clean State & Admin Product Creation
-  console.log('--- Phase 2: Catalog Clean State & Admin Dynamic Product Addition ---');
+  // 2. Initial State & Admin Product Creation
+  console.log('--- Phase 2: Catalog State & Admin Dynamic Product Addition ---');
   const initialProductsRes = await fetch('http://localhost:5000/api/products').then(r => r.json());
-  console.log(`✓ Initial Product Count: ${initialProductsRes.count} (Clean catalog, Shirt completely removed, zero demo products)`);
-  if (initialProductsRes.count !== 0) {
-    throw new Error(`Expected clean catalog with 0 initial products, found ${initialProductsRes.count}`);
+  const shirtProd = initialProductsRes.products?.find(p => p.name === 'Shirt');
+  if (!shirtProd) {
+    throw new Error('Expected initial Shirt product in database');
   }
+  console.log(`✓ Initial Product Found: "${shirtProd.name}" (SKU: ${shirtProd.sku}, Price: ₹${shirtProd.sellingPrice})`);
 
   // Admin creates a new product
   const catRes = await fetch('http://localhost:5000/api/products/categories/list').then(r => r.json());
@@ -81,9 +82,10 @@ async function runE2ETests() {
       'Authorization': `Bearer ${tokens.admin}`
     },
     body: JSON.stringify({
-      name: 'SMP Apparel Standard',
-      sku: 'SMP-APP-001',
-      barcode: '8901234567890',
+      name: 'SMP Designer Kurta',
+      sku: `SMP-KURTA-${Date.now()}`,
+      barcode: `${Math.floor(1000000000000 + Math.random() * 9000000000000)}`,
+      barcodeFormat: 'CODE128',
       brand: 'SMP',
       category: categoryId,
       description: 'Premium quality apparel for all seasons.',
@@ -147,6 +149,7 @@ async function runE2ETests() {
   console.log(`✓ Guard Verified: QR payment blocked without verified UTR: "${qrFail.message}"`);
 
   // B. Verified QR Payment with UTR
+  const testUtr = 'UTR' + Math.floor(100000000000 + Math.random() * 900000000000);
   const billRes = await fetch('http://localhost:5000/api/billing/create-bill', {
     method: 'POST',
     headers: {
@@ -157,7 +160,7 @@ async function runE2ETests() {
       customerName: 'Karthik Raja',
       customerPhone: '9840112233',
       paymentMethod: 'POS_UPI_QR',
-      transactionRef: 'UTR987654321012',
+      transactionRef: testUtr,
       items: [{
         productId: testProduct._id,
         quantity: 2,
@@ -184,7 +187,7 @@ async function runE2ETests() {
       customerName: 'Second Customer',
       customerPhone: '9840112244',
       paymentMethod: 'POS_UPI_QR',
-      transactionRef: 'UTR987654321012',
+      transactionRef: testUtr,
       items: [{
         productId: testProduct._id,
         quantity: 1,
@@ -264,7 +267,7 @@ async function runE2ETests() {
       'Authorization': `Bearer ${tokens.admin}`
     },
     body: JSON.stringify({
-      code: 'TESTDISC25',
+      code: 'TESTDISC' + Math.floor(100 + Math.random() * 900),
       title: 'Summer 25% Off',
       discountPercent: 25,
       minPurchaseAmount: 500,
@@ -276,7 +279,140 @@ async function runE2ETests() {
   console.log(`✓ Coupon Created: ${couponRes.coupon.code} (${couponRes.coupon.discountPercent}% OFF)`);
   console.log(`✓ WhatsApp Broadcast Logged: Sent/Simulated = ${couponRes.whatsAppSummary.sent}, Opted Out = ${couponRes.whatsAppSummary.optedOut}\n`);
 
-  console.log('=== ALL END-TO-END FLOWS COMPLETED WITH 100% SUCCESS! ===');
+  // 9. Category Management CRUD & Product Count
+  console.log('--- Phase 9: Category Management CRUD ---');
+  const catListRes = await fetch('http://localhost:5000/api/products/categories/list', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!catListRes.success) throw new Error('Category listing failed');
+  console.log(`✓ Category Listing: Found ${catListRes.categories.length} categories, initial Clothing count = ${catListRes.categories[0]?.productCount || 0}`);
+
+    const catSuffix = Math.floor(100 + Math.random() * 900);
+    const createCatRes = await fetch('http://localhost:5000/api/products/categories', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${tokens.admin}`
+      },
+      body: JSON.stringify({
+        name: `Footwear ${catSuffix}`,
+        categoryId: `CAT-${catSuffix}`,
+        description: 'Formal and casual shoes',
+        status: 'ACTIVE'
+      })
+    }).then(r => r.json());
+    if (!createCatRes.success) throw new Error(`Category creation failed: ${createCatRes.message}`);
+    console.log(`✓ Category Created: "${createCatRes.category.name}" (ID: ${createCatRes.category.categoryId})`);
+
+    const updateCatRes = await fetch(`http://localhost:5000/api/products/categories/${createCatRes.category._id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${tokens.admin}`
+      },
+      body: JSON.stringify({
+        name: `Footwear & Acc ${catSuffix}`,
+        status: 'ACTIVE'
+      })
+    }).then(r => r.json());
+    if (!updateCatRes.success) throw new Error(`Category update failed: ${updateCatRes.message}`);
+    console.log(`✓ Category Updated: Renamed to "${updateCatRes.category.name}"`);
+
+  // 10. Barcode Management & Initial Shirt Barcode Lookup
+  console.log('\n--- Phase 10: Barcode Management & Initial Shirt Barcode Verification ---');
+  const barcodeListRes = await fetch('http://localhost:5000/api/products/barcodes/list', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!barcodeListRes.success) throw new Error('Barcode listing failed');
+  const barcodesCount = (barcodeListRes.products || barcodeListRes.barcodes || []).length;
+  console.log(`✓ Barcode Listing: Found ${barcodesCount} products with barcodes`);
+
+  // Direct lookup for initial Shirt barcode: 8901234567890
+  const shirtBarcodeRes = await fetch('http://localhost:5000/api/products/by-barcode/8901234567890', {
+    headers: { 'Authorization': `Bearer ${tokens.staff}` }
+  }).then(r => r.json());
+  if (!shirtBarcodeRes.success || shirtBarcodeRes.product.name !== 'Shirt') {
+    throw new Error('Initial Shirt product barcode lookup failed');
+  }
+  console.log(`✓ Initial Shirt Barcode (8901234567890) Verified:`);
+  console.log(`   Product: "${shirtBarcodeRes.product.name}"`);
+  console.log(`   SKU: ${shirtBarcodeRes.product.sku}`);
+  console.log(`   Selling Price: ₹${shirtBarcodeRes.product.sellingPrice}`);
+  console.log(`   Barcode Format: ${shirtBarcodeRes.product.barcodeFormat}`);
+
+  // 11. QR Code Management & QR Lookup
+  console.log('\n--- Phase 11: QR Code Management & Lookups ---');
+  const qrListRes = await fetch('http://localhost:5000/api/products/qr-codes/list', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!qrListRes.success) throw new Error('QR listing failed');
+  console.log(`✓ QR Code Listing: Found ${qrListRes.qrCodes.length} active QR records`);
+
+  const shirtQrLookup = await fetch('http://localhost:5000/api/products/by-qr?qrData=smp:product:SMP-SHIRT-001', {
+    headers: { 'Authorization': `Bearer ${tokens.staff}` }
+  }).then(r => r.json());
+  if (!shirtQrLookup.success || shirtQrLookup.product.name !== 'Shirt') {
+    throw new Error('QR lookup for Shirt failed');
+  }
+  console.log(`✓ Shirt QR Lookup (smp:product:SMP-SHIRT-001) Verified: Product "${shirtQrLookup.product.name}" matched`);
+
+  // 12. Scanner Settings & Test Scan Mode
+  console.log('\n--- Phase 12: Scanner Settings & Live Test Scan Terminal ---');
+  const scannerSettingsRes = await fetch('http://localhost:5000/api/settings/scanner', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!scannerSettingsRes.success) throw new Error('Scanner settings retrieval failed');
+  console.log(`✓ Scanner Settings: Primary=${scannerSettingsRes.settings.scannerType}, BarcodeFormat=${scannerSettingsRes.settings.barcodeFormat}`);
+
+  // Test scan simulation with Shirt barcode
+  const testScanRes = await fetch('http://localhost:5000/api/settings/scanner/test', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokens.admin}`
+    },
+    body: JSON.stringify({
+      scanInput: '8901234567890',
+      scanType: 'BARCODE'
+    })
+  }).then(r => r.json());
+  if (!testScanRes.success || !testScanRes.product) {
+    throw new Error('Scanner test scan failed');
+  }
+  console.log(`✓ Scanner Live Test Verified: Decoded "${testScanRes.rawInput}" -> Product: "${testScanRes.product.name}" (Price: ₹${testScanRes.product.sellingPrice})`);
+
+  // 13. Complete Bill History & 7 Summary KPIs
+  console.log('\n--- Phase 13: Complete Bill History & 7 Summary KPIs ---');
+  const completeHistoryRes = await fetch('http://localhost:5000/api/billing/complete-history?exportAll=true', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!completeHistoryRes.success) throw new Error('Complete bill history failed');
+
+  console.log(`✓ Complete Bill History: ${completeHistoryRes.invoices.length} total historical records retrieved`);
+  console.log(`  Top 7 KPI Summary Cards:`);
+  console.log(`    1. Total Bills:               ${completeHistoryRes.summary.totalBills}`);
+  console.log(`    2. Total Sales:               ₹${completeHistoryRes.summary.totalSales}`);
+  console.log(`    3. Total GST:                 ₹${completeHistoryRes.summary.totalGst}`);
+  console.log(`    4. Total Discounts:           ₹${completeHistoryRes.summary.totalDiscounts}`);
+  console.log(`    5. Total Delivery Charges:    ₹${completeHistoryRes.summary.totalDeliveryCharges}`);
+  console.log(`    6. Total Cancelled Bills:     ${completeHistoryRes.summary.totalCancelledBills}`);
+  console.log(`    7. Total Successful Payments: ${completeHistoryRes.summary.totalSuccessfulPayments}`);
+
+  // 14. Owner & Admin WhatsApp Settings
+  console.log('\n--- Phase 14: Admin & Owner WhatsApp Settings ---');
+  const adminWaRes = await fetch('http://localhost:5000/api/admin/whatsapp-settings', {
+    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+  }).then(r => r.json());
+  if (!adminWaRes.success) throw new Error('Admin WhatsApp settings failed');
+  console.log(`✓ Admin WhatsApp Settings: Admin Number=${adminWaRes.settings.adminNotificationNumber}, NotifyOnNewBill=${adminWaRes.settings.notifyOnNewBill}`);
+
+  const ownerWaRes = await fetch('http://localhost:5000/api/owner/whatsapp-settings', {
+    headers: { 'Authorization': `Bearer ${tokens.owner}` }
+  }).then(r => r.json());
+  if (!ownerWaRes.success) throw new Error('Owner WhatsApp settings failed');
+  console.log(`✓ Owner WhatsApp Gateway: Business Number=${ownerWaRes.settings.businessPhoneNumber}, Master Gateway=${ownerWaRes.settings.metaConfig?.enabled ? 'Active' : 'Disabled'}`);
+
+  console.log('\n=== ALL 14 PHASES OF END-TO-END VERIFICATION COMPLETED WITH 100% SUCCESS! ===');
 }
 
 runE2ETests().catch(err => {

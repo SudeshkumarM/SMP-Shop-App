@@ -43,48 +43,48 @@ const AdminDashboard = () => {
       {/* Metric Cards Grid */}
       <div className="row g-3 mb-4">
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
+          <div className="smp-card smp-card-blue p-3 h-100 d-flex align-items-center gap-3">
             <div className="p-3 bg-primary-subtle text-primary rounded-3">
               <i className="bi bi-currency-rupee fs-3"></i>
             </div>
             <div>
-              <div className="fs-5 fw-bold">₹{data.kpis.todaySales?.toFixed(2)}</div>
+              <div className="fs-5 fw-bold text-dark">₹{data.kpis.todaySales?.toFixed(2)}</div>
               <small className="text-muted">Today's Sales Revenue</small>
             </div>
           </div>
         </div>
 
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
+          <div className="smp-card smp-card-green p-3 h-100 d-flex align-items-center gap-3">
             <div className="p-3 bg-success-subtle text-success rounded-3">
               <i className="bi bi-calendar-check fs-3"></i>
             </div>
             <div>
-              <div className="fs-5 fw-bold">₹{data.kpis.monthlySales?.toFixed(2)}</div>
+              <div className="fs-5 fw-bold text-dark">₹{data.kpis.monthlySales?.toFixed(2)}</div>
               <small className="text-muted">This Month's Sales</small>
             </div>
           </div>
         </div>
 
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
-            <div className="p-3 bg-info-subtle text-info-emphasis rounded-3">
+          <div className="smp-card smp-card-purple p-3 h-100 d-flex align-items-center gap-3">
+            <div className="p-3 rounded-3" style={{ backgroundColor: '#F5F3FF', color: '#8B5CF6' }}>
               <i className="bi bi-box-seam fs-3"></i>
             </div>
             <div>
-              <div className="fs-5 fw-bold">{data.kpis.totalOrders}</div>
+              <div className="fs-5 fw-bold text-dark">{data.kpis.totalOrders}</div>
               <small className="text-muted">Total Orders Processed</small>
             </div>
           </div>
         </div>
 
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
-            <div className="p-3 bg-warning-subtle text-warning-emphasis rounded-3">
+          <div className="smp-card smp-card-orange p-3 h-100 d-flex align-items-center gap-3">
+            <div className="p-3 rounded-3" style={{ backgroundColor: '#FFF7ED', color: '#F97316' }}>
               <i className="bi bi-tags-fill fs-3"></i>
             </div>
             <div>
-              <div className="fs-5 fw-bold">{data.kpis.totalProducts}</div>
+              <div className="fs-5 fw-bold text-dark">{data.kpis.totalProducts}</div>
               <small className="text-muted">Active Products</small>
             </div>
           </div>

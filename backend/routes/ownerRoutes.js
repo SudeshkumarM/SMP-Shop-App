@@ -20,10 +20,21 @@ const {
 } = require('../controllers/ownerController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
+const {
+  getWhatsAppSettings,
+  updateWhatsAppSettings,
+  getWhatsAppLogs
+} = require('../controllers/adminController');
+
 router.use(protect);
 router.use(authorize('owner'));
 
 router.get('/dashboard-stats', getOwnerDashboardStats);
+
+// WhatsApp Master Owner Settings
+router.get('/whatsapp-settings', getWhatsAppSettings);
+router.put('/whatsapp-settings', updateWhatsAppSettings);
+router.get('/whatsapp-logs', getWhatsAppLogs);
 
 // Store Management
 router.get('/shops', getShops);

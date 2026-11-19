@@ -58,36 +58,36 @@ const CustomerDashboard = () => {
       {/* KPI Cards */}
       <div className="row g-3 mb-4">
         <div className="col-md-4 col-sm-6">
-          <div className="smp-card p-3 d-flex align-items-center gap-3 bg-white">
+          <div className="smp-card smp-card-blue p-3 d-flex align-items-center gap-3">
             <div className="p-3 bg-primary-subtle text-primary rounded-3">
               <i className="bi bi-box-seam fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{profile?.totalPurchases || recentOrders.length}</div>
+              <div className="fs-4 fw-bold text-dark">{profile?.totalPurchases || recentOrders.length}</div>
               <small className="text-muted">Total Orders Placed</small>
             </div>
           </div>
         </div>
 
         <div className="col-md-4 col-sm-6">
-          <div className="smp-card p-3 d-flex align-items-center gap-3 bg-white">
-            <div className="p-3 bg-warning-subtle text-warning rounded-3">
+          <div className="smp-card smp-card-orange p-3 d-flex align-items-center gap-3">
+            <div className="p-3 rounded-3" style={{ backgroundColor: '#FFF7ED', color: '#F97316' }}>
               <i className="bi bi-star-fill fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{profile?.loyaltyPoints || 150}</div>
+              <div className="fs-4 fw-bold text-dark">{profile?.loyaltyPoints || 150}</div>
               <small className="text-muted">SMP Loyalty Reward Points</small>
             </div>
           </div>
         </div>
 
         <div className="col-md-4 col-sm-12">
-          <div className="smp-card p-3 d-flex align-items-center gap-3 bg-white">
+          <div className="smp-card smp-card-coral p-3 d-flex align-items-center gap-3">
             <div className="p-3 bg-danger-subtle text-danger rounded-3">
               <i className="bi bi-heart-fill fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{profile?.wishlist?.length || 0}</div>
+              <div className="fs-4 fw-bold text-dark">{profile?.wishlist?.length || 0}</div>
               <small className="text-muted">Saved in Wishlist</small>
             </div>
           </div>

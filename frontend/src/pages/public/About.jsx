@@ -7,58 +7,61 @@ const About = () => {
       <div className="row justify-content-center">
         <div className="col-lg-10">
           <div className="text-center mb-5">
-            <span className="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fw-bold mb-2">
+            <span className="badge bg-primary text-white px-3 py-2 rounded-pill fw-bold mb-2">
               ABOUT SMP
             </span>
-            <h1 className="display-5 fw-bold brand-font">SMP Retail System</h1>
+            <h1 className="display-5 fw-bold brand-font text-white">About SMP</h1>
             <p className="lead text-muted mx-auto" style={{ maxWidth: '700px' }}>
-              A modern, robust, and scalable retail operating system designed for single boutiques today, and multi-shop enterprise shopping malls tomorrow.
+              A modern, robust, and scalable retail operating platform engineered for seamless shopping, high-speed POS billing, and real-time inventory management.
             </p>
           </div>
 
-          <div className="smp-card p-4 p-md-5 mb-4">
+          <div className="smp-card p-4 p-md-5 mb-4 shadow-sm" style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}>
             <h3 className="fw-bold brand-font mb-3 text-primary">The Vision & Architecture</h3>
-            <p className="text-secondary leading-relaxed">
-              SMP was architected from the ground up to solve the fragmentation in modern retail. While initially launched as a flagship <strong>Dress & Apparel</strong> commerce and Point of Sale solution for <strong>SMP Elite Fashions</strong>, the platform is structured with native multi-tenancy.
+            <p className="leading-relaxed" style={{ color: '#CBD5E1' }}>
+              SMP was architected from the ground up to solve fragmentation in modern retail. While initially launched as a flagship commerce and Point of Sale solution for apparel and fashion retail, the platform is structured with native multi-tenancy and high-volume scalability.
             </p>
-            <p className="text-secondary leading-relaxed">
-              Every database entity — from catalog items, variants, stock logs, customer carts, POS billing terminals, operating expenses, and owner investments — is explicitly scoped by <code>shopId</code> and <code>branchId</code>. This ensures zero data leakage between different retail shops while giving the Master Owner total corporate governance across the entire mall.
+            <p className="leading-relaxed" style={{ color: '#CBD5E1' }}>
+              Every database entity — from catalog items, variants, stock logs, customer carts, POS billing terminals, operating expenses, and governance analytics — is explicitly scoped and synchronized in real-time. This ensures zero data leakage and instantaneous inventory reconciliation.
             </p>
 
             <div className="row g-4 mt-2">
               <div className="col-md-6">
-                <div className="p-3 bg-light rounded-3 h-100">
-                  <h5 className="fw-bold d-flex align-items-center gap-2">
-                    <i className="bi bi-shop text-primary"></i> Multi-Shop Scalability
+                <div className="p-3 rounded-3 h-100 border" style={{ backgroundColor: '#0F172A', borderColor: '#334155' }}>
+                  <h5 className="fw-bold d-flex align-items-center gap-2 text-white">
+                    <i className="bi bi-shop text-primary"></i> Multi-Category Scalability
                   </h5>
                   <p className="small text-muted mb-0">
-                    Seamlessly expand to Electronics, Groceries, Footwear, and Accessories shops. Each shop gets its own isolated admin, staff, POS terminals, and profit centers.
+                    Seamlessly manage Clothing, Electronics, Footwear, and Accessories. Every category features customized SKU, barcode, and QR code tracking.
                   </p>
                 </div>
               </div>
               <div className="col-md-6">
-                <div className="p-3 bg-light rounded-3 h-100">
-                  <h5 className="fw-bold d-flex align-items-center gap-2">
-                    <i className="bi bi-calculator text-success"></i> True Mathematical P&L
+                <div className="p-3 rounded-3 h-100 border" style={{ backgroundColor: '#0F172A', borderColor: '#334155' }}>
+                  <h5 className="fw-bold d-flex align-items-center gap-2 text-white">
+                    <i className="bi bi-upc-scan text-info"></i> Hardware-Accelerated POS
                   </h5>
                   <p className="small text-muted mb-0">
-                    Gross profit is accurately derived from Revenue minus Cost of Goods Sold (COGS). Net profit accounts for store rent, employee payroll, electricity, and marketing expenses.
+                    Instant USB keystroke wedge barcode scanning and mobile camera QR scanning support rapid checkouts with zero delay.
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="smp-card p-4 p-md-5 text-center bg-primary text-white">
-            <h3 className="fw-bold brand-font mb-2">Explore the Four Modules</h3>
-            <p className="text-light mb-4">
-              Switch seamlessly between Customer Store, Staff POS, Admin Console, and Owner Governance.
+          {/* Clean Public Engagement Card */}
+          <div className="smp-card p-4 p-md-5 text-center shadow-sm" style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}>
+            <h3 className="fw-bold brand-font mb-2 text-white">Discover SMP Collections</h3>
+            <p className="text-muted mb-4 mx-auto" style={{ maxWidth: '600px' }}>
+              Explore our curated clothing collections with live real-time stock availability, fast doorstep delivery, and dedicated customer support.
             </p>
             <div className="d-flex flex-wrap justify-content-center gap-3">
-              <Link to="/" className="btn btn-light fw-bold px-4 rounded-pill">Customer Store</Link>
-              <Link to="/staff/login" className="btn btn-outline-light fw-bold px-4 rounded-pill">Staff POS</Link>
-              <Link to="/admin/login" className="btn btn-outline-light fw-bold px-4 rounded-pill">Admin Management</Link>
-              <Link to="/owner/login" className="btn btn-warning text-dark fw-bold px-4 rounded-pill">Owner Hub</Link>
+              <Link to="/products" className="btn btn-primary px-4 py-2 rounded-pill fw-bold">
+                <i className="bi bi-grid-fill me-2"></i> Browse Products
+              </Link>
+              <Link to="/contact" className="btn btn-outline-primary px-4 py-2 rounded-pill fw-bold">
+                <i className="bi bi-chat-dots-fill me-2"></i> Contact Us
+              </Link>
             </div>
           </div>
         </div>

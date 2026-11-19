@@ -5,7 +5,7 @@ import Footer from '../components/common/Footer';
 
 const PublicLayout = () => {
   return (
-    <div className="d-flex flex-column min-vh-100 bg-light">
+    <div className="d-flex flex-column min-vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
       <Navbar />
       <main className="flex-grow-1">
         <Outlet />

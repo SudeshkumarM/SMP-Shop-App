@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const User = require('../models/User');
 const Customer = require('../models/Customer');
 const Staff = require('../models/Staff');
@@ -393,6 +394,76 @@ const loginAdmin = async (req, res) => {
 };
 
 /**
+ * @desc    One-Time Initial Master Owner Setup (Locked once an owner exists)
+ * @route   POST /api/auth/owner/setup-initial
+ * @access  Protected One-Time Setup
+ */
+const setupInitialOwner = async (req, res) => {
+  try {
+    const existingOwnerCount = await User.countDocuments({ role: 'owner' });
+    if (existingOwnerCount > 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Security Policy: Master Owner account has already been configured. Public creation is disabled.'
+      });
+    }
+
+    const { name, username, email, password, phone } = req.body;
+    if (!name || !username || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide Owner Name, Username, Email, and Password.'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long.'
+      });
+    }
+
+    const user = await User.create({
+      name: name.trim(),
+      username: username.trim().toLowerCase(),
+      email: email.trim().toLowerCase(),
+      password, // User model pre-save hook handles bcrypt hashing
+      phone: (phone || '9876543210').trim(),
+      role: 'owner',
+      isActive: true,
+      isEmailVerified: true
+    });
+
+    const owner = await Owner.create({
+      userId: user._id,
+      ownerId: 'OWN-001',
+      username: user.username,
+      fullName: user.name,
+      email: user.email,
+      phone: user.phone,
+      isMasterOwner: true
+    });
+
+    const token = generateToken(user);
+    res.status(201).json({
+      success: true,
+      message: 'Master Owner configured successfully. Initial setup is now permanently locked.',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        role: 'owner',
+        ownerId: owner.ownerId
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
  * @desc    Owner Login (supports Username OR Email + Password)
  * @route   POST /api/auth/owner/login
  * @access  Public
@@ -535,6 +606,94 @@ const resetPassword = async (req, res) => {
 };
 
 /**
+ * @desc    Forgot Password - Email Recovery Token
+ * @route   POST /api/auth/forgot-password-email
+ * @access  Public
+ */
+const forgotPasswordEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Please provide your registered email address.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
+
+    // Prevent user enumeration: Always return positive message
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been generated.'
+      });
+    }
+
+    // Generate reset token and save expiration
+    const resetToken = user.getResetPasswordToken();
+    await user.save({ validateBeforeSave: false });
+
+    console.log(`[SMP AUTH] Password reset link for ${user.email}: /reset-password/${resetToken}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been generated.',
+      resetToken // Expose in response for testing/development
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Reset Password with Token
+ * @route   POST /api/auth/reset-password/:token
+ * @access  Public
+ */
+const resetPasswordWithToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Reset token and new password are required.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+    }
+
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired password reset link. Please request a new one.'
+      });
+    }
+
+    user.password = newPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successful! You can now log in with your new password.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * @desc    Get Current User Profile
  * @route   GET /api/auth/me
  * @access  Private
@@ -585,12 +744,36 @@ const updateProfile = async (req, res) => {
       user.username = username.trim().toLowerCase();
     }
 
+    let emailPendingVerification = false;
     if (email && email.trim().toLowerCase() !== user.email) {
       const exists = await User.findOne({ email: email.trim().toLowerCase(), _id: { $ne: user._id } });
       if (exists) {
         return res.status(400).json({ success: false, message: 'Email is already in use by another account.' });
       }
-      user.email = email.trim().toLowerCase();
+
+      if (user.role === 'owner') {
+        const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
+        user.pendingEmail = email.trim().toLowerCase();
+        user.emailVerificationToken = verifyCode;
+        user.emailVerificationExpire = new Date(Date.now() + 15 * 60 * 1000);
+        emailPendingVerification = true;
+
+        await sendEmail({
+          to: user.pendingEmail,
+          subject: 'SMP Master Owner - Verify Your New Email Address',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; padding: 20px; border: 1px solid #1E3A70; border-radius: 8px; background: #101B3F; color: #FFFFFF;">
+              <h2 style="color: #38BDF8; margin-top: 0;">SMP Master Owner Security</h2>
+              <p>You requested to update your Master Owner email address to <strong>${user.pendingEmail}</strong>.</p>
+              <p>Use the following 6-digit verification code to activate your new email:</p>
+              <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #F97316; margin: 15px 0;">${verifyCode}</div>
+              <p style="color: #94A3B8; font-size: 13px;">This code will expire in 15 minutes. If you did not request this change, please ignore this email.</p>
+            </div>
+          `
+        });
+      } else {
+        user.email = email.trim().toLowerCase();
+      }
     }
 
     await user.save();
@@ -619,14 +802,75 @@ const updateProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      requiresEmailVerification: emailPendingVerification,
+      message: emailPendingVerification
+        ? `Profile saved. A 6-digit verification code was sent to ${user.pendingEmail}. Please verify to activate it.`
+        : 'Profile updated successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        pendingEmail: user.pendingEmail,
+        phone: user.phone,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Verify and activate new Email Address for Owner/User
+ * @route   POST /api/auth/verify-email-change
+ * @access  Private
+ */
+const verifyEmailChange = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Please provide the 6-digit verification code.' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user || !user.pendingEmail || !user.emailVerificationToken) {
+      return res.status(400).json({ success: false, message: 'No pending email change request found.' });
+    }
+
+    if (user.emailVerificationExpire && user.emailVerificationExpire < new Date()) {
+      return res.status(400).json({ success: false, message: 'Verification code has expired. Please update email again.' });
+    }
+
+    if (user.emailVerificationToken !== code.trim()) {
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
+    }
+
+    user.email = user.pendingEmail;
+    user.isEmailVerified = true;
+    user.pendingEmail = null;
+    user.emailVerificationToken = null;
+    user.emailVerificationExpire = null;
+    await user.save();
+
+    if (user.role === 'owner') {
+      await Owner.findOneAndUpdate(
+        { userId: user._id },
+        { email: user.email }
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'New email address verified and activated successfully!',
       user: {
         id: user._id,
         name: user.name,
         username: user.username,
         email: user.email,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        isEmailVerified: true
       }
     });
   } catch (error) {
@@ -669,9 +913,13 @@ module.exports = {
   loginStaff,
   loginAdmin,
   loginOwner,
+  setupInitialOwner,
   forgotPassword,
   resetPassword,
+  forgotPasswordEmail,
+  resetPasswordWithToken,
   getMe,
   updateProfile,
+  verifyEmailChange,
   changePassword
 };

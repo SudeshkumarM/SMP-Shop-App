@@ -7,10 +7,14 @@ const {
   loginStaff,
   loginAdmin,
   loginOwner,
+  setupInitialOwner,
   forgotPassword,
   resetPassword,
+  forgotPasswordEmail,
+  resetPasswordWithToken,
   getMe,
   updateProfile,
+  verifyEmailChange,
   changePassword
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
@@ -28,14 +32,18 @@ router.post('/admin/login', loginAdmin);
 
 // Owner Auth
 router.post('/owner/login', loginOwner);
+router.post('/owner/setup-initial', setupInitialOwner);
 
 // Password recovery
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/forgot-password-email', forgotPasswordEmail);
+router.post('/reset-password/:token', resetPasswordWithToken);
 
 // Profile
 router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
+router.post('/verify-email-change', protect, verifyEmailChange);
 router.put('/change-password', protect, changePassword);
 
 module.exports = router;

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import ProductImageUploader from '../../components/common/ProductImageUploader';
 
 const AdminProducts = () => {
   const [products, setProducts] = useState([]);
@@ -13,27 +15,28 @@ const AdminProducts = () => {
   const [editingProduct, setEditingProduct] = useState(null);
   const [importing, setImporting] = useState(false);
 
-  // New Product Form
-  const [newProd, setNewProd] = useState({
+  const initialNewProd = {
     name: '',
     sku: '',
     barcode: '',
     brand: 'SMP',
     category: '',
     description: '',
-    costPrice: 800,
-    originalPrice: 1999,
-    sellingPrice: 1499,
-    discountPercent: 25,
+    costPrice: '',
+    originalPrice: '',
+    sellingPrice: '',
+    discountPercent: 0,
     gstPercent: 5,
-    availableQuantity: 30,
+    availableQuantity: '',
     lowStockThreshold: 5,
-    sizes: 'S, M, L, XL',
-    colours: 'Navy Blue, Maroon, Black',
-    imageUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=600&q=80',
-    isFeatured: true,
+    sizes: '',
+    colours: '',
+    images: [],
+    isFeatured: false,
     isTrending: false
-  });
+  };
+
+  const [newProd, setNewProd] = useState(initialNewProd);
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -43,7 +46,13 @@ const AdminProducts = () => {
         api.get('/products/categories/list')
       ]);
       if (prodRes.data.success) setProducts(prodRes.data.products || []);
-      if (catRes.data.success) setCategories(catRes.data.categories || []);
+      if (catRes.data.success) {
+        const catList = catRes.data.categories || [];
+        setCategories(catList);
+        if (catList.length > 0 && !newProd.category) {
+          setNewProd(prev => ({ ...prev, category: catList[0]._id }));
+        }
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -55,24 +64,41 @@ const AdminProducts = () => {
     fetchProducts();
   }, []);
 
+  const handleOpenAddModal = () => {
+    setNewProd({
+      ...initialNewProd,
+      category: categories.length > 0 ? categories[0]._id : ''
+    });
+    setShowAddModal(true);
+  };
+
   const handleCreateProduct = async (e) => {
     e.preventDefault();
-    if (!newProd.category && categories.length > 0) {
-      newProd.category = categories[0]._id;
+
+    if (!newProd.category) {
+      addToast('A Category is required. Please create a Category first.', 'error');
+      return;
     }
 
     try {
       const payload = {
         ...newProd,
-        sizes: typeof newProd.sizes === 'string' ? newProd.sizes.split(',').map(s => s.trim()) : newProd.sizes,
-        colours: typeof newProd.colours === 'string' ? newProd.colours.split(',').map(c => c.trim()) : newProd.colours,
-        images: [newProd.imageUrl]
+        costPrice: Number(newProd.costPrice) || 0,
+        originalPrice: Number(newProd.originalPrice) || 0,
+        sellingPrice: Number(newProd.sellingPrice) || 0,
+        availableQuantity: Number(newProd.availableQuantity) || 0,
+        discountPercent: Number(newProd.discountPercent) || 0,
+        gstPercent: Number(newProd.gstPercent) || 5,
+        sizes: typeof newProd.sizes === 'string' ? newProd.sizes.split(',').map(s => s.trim()).filter(Boolean) : newProd.sizes,
+        colours: typeof newProd.colours === 'string' ? newProd.colours.split(',').map(c => c.trim()).filter(Boolean) : newProd.colours,
+        images: newProd.images || []
       };
 
       const res = await api.post('/products', payload);
       if (res.data.success) {
-        addToast('Product created successfully', 'success');
+        addToast('Product created successfully in catalog', 'success');
         setShowAddModal(false);
+        setNewProd(initialNewProd);
         fetchProducts();
       }
     } catch (err) {
@@ -85,18 +111,25 @@ const AdminProducts = () => {
     try {
       const payload = {
         ...editingProduct,
-        sizes: typeof editingProduct.sizes === 'string' ? editingProduct.sizes.split(',').map(s => s.trim()) : editingProduct.sizes,
-        colours: typeof editingProduct.colours === 'string' ? editingProduct.colours.split(',').map(c => c.trim()) : editingProduct.colours
+        costPrice: Number(editingProduct.costPrice) || 0,
+        originalPrice: Number(editingProduct.originalPrice) || 0,
+        sellingPrice: Number(editingProduct.sellingPrice) || 0,
+        availableQuantity: Number(editingProduct.availableQuantity) || 0,
+        discountPercent: Number(editingProduct.discountPercent) || 0,
+        gstPercent: Number(editingProduct.gstPercent) || 5,
+        sizes: typeof editingProduct.sizes === 'string' ? editingProduct.sizes.split(',').map(s => s.trim()).filter(Boolean) : editingProduct.sizes,
+        colours: typeof editingProduct.colours === 'string' ? editingProduct.colours.split(',').map(c => c.trim()).filter(Boolean) : editingProduct.colours,
+        images: editingProduct.images || []
       };
 
       const res = await api.put(`/products/${editingProduct._id}`, payload);
       if (res.data.success) {
-        addToast('Product updated', 'success');
+        addToast('Product updated successfully', 'success');
         setEditingProduct(null);
         fetchProducts();
       }
     } catch (err) {
-      addToast('Update failed', 'error');
+      addToast(err.response?.data?.message || 'Update failed', 'error');
     }
   };
 
@@ -105,7 +138,7 @@ const AdminProducts = () => {
     try {
       const res = await api.delete(`/products/${id}`);
       if (res.data.success) {
-        addToast('Product deleted', 'info');
+        addToast('Product deleted from active catalog', 'info');
         fetchProducts();
       }
     } catch (e) {
@@ -144,12 +177,12 @@ const AdminProducts = () => {
     <div className="fade-in">
       <div className="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
         <div>
-          <h3 className="fw-bold brand-font mb-0">Product Catalog Management</h3>
+          <h3 className="fw-bold brand-font mb-0 text-slate-900">Product Catalog Management</h3>
           <small className="text-muted">Manage items, prices, barcodes, sizes, variants & bulk Excel sync</small>
         </div>
 
         <div className="d-flex flex-wrap gap-2">
-          {/* Excel Import button */}
+          {/* Excel Import */}
           <label className="btn btn-outline-secondary btn-sm rounded-pill px-3 fw-semibold cursor-pointer mb-0">
             <i className="bi bi-file-earmark-arrow-up me-1"></i>
             {importing ? 'Importing...' : 'Import Excel'}
@@ -160,14 +193,29 @@ const AdminProducts = () => {
             <i className="bi bi-file-earmark-excel me-1"></i> Export to Excel
           </button>
 
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm rounded-pill px-3 fw-semibold">
+          <button onClick={handleOpenAddModal} className="btn btn-primary btn-sm rounded-pill px-3 fw-semibold">
             <i className="bi bi-plus-lg me-1"></i> Add Product
           </button>
         </div>
       </div>
 
+      {/* Category First Warning Banner */}
+      {categories.length === 0 && !loading && (
+        <div className="alert alert-warning d-flex align-items-center justify-content-between shadow-sm rounded-3 mb-4">
+          <div className="d-flex align-items-center gap-2">
+            <i className="bi bi-exclamation-triangle-fill fs-5 text-warning"></i>
+            <div>
+              <strong>No Categories Found:</strong> You must create at least one category before adding products to the catalog.
+            </div>
+          </div>
+          <Link to="/admin/categories" className="btn btn-warning btn-sm fw-bold text-dark px-3 rounded-pill">
+            <i className="bi bi-plus-circle me-1"></i> Create Category First
+          </Link>
+        </div>
+      )}
+
       {/* Search Header */}
-      <div className="smp-card p-3 mb-4 shadow-sm">
+      <div className="smp-card p-3 mb-4 bg-white shadow-sm">
         <div className="d-flex gap-2">
           <input
             type="text"
@@ -183,19 +231,30 @@ const AdminProducts = () => {
       </div>
 
       {/* Products Table */}
-      <div className="smp-card p-4 shadow-sm">
+      <div className="smp-card p-4 bg-white shadow-sm">
         {loading ? (
           <div className="text-center py-5">
             <div className="spinner-border text-primary" role="status"></div>
+            <p className="small text-muted mt-2">Loading products...</p>
           </div>
         ) : products.length === 0 ? (
           <div className="text-center py-5 text-muted">
             <i className="bi bi-box-seam display-4 text-secondary mb-2 d-block"></i>
-            <h5 className="text-white">No Products in Catalog</h5>
-            <p className="small mb-3" style={{ color: 'var(--smp-text-secondary)' }}>Click 'Add Product' above or import via Excel to add items to your shop.</p>
-            <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm px-3">
-              <i className="bi bi-plus-lg me-1"></i> Add First Product
-            </button>
+            <h5 className="text-dark fw-bold">No Products in Catalog</h5>
+            <p className="small mb-3 text-muted">
+              {categories.length === 0
+                ? 'Create your first Category before adding products.'
+                : "Click 'Add Product' above or import via Excel to add items to your shop."}
+            </p>
+            {categories.length === 0 ? (
+              <Link to="/admin/categories" className="btn btn-warning text-dark btn-sm px-3 rounded-pill fw-bold">
+                <i className="bi bi-plus-circle me-1"></i> Create Category
+              </Link>
+            ) : (
+              <button onClick={handleOpenAddModal} className="btn btn-primary btn-sm px-3 rounded-pill fw-semibold">
+                <i className="bi bi-plus-lg me-1"></i> Add First Product
+              </button>
+            )}
           </div>
         ) : (
           <div className="table-responsive">
@@ -218,29 +277,42 @@ const AdminProducts = () => {
                   <tr key={p._id}>
                     <td>
                       <div className="d-flex align-items-center gap-2">
-                        <img
-                          src={p.images?.[0] || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=100&q=80'}
-                          alt={p.name}
-                          className="rounded-2 object-fit-cover"
-                          style={{ width: '45px', height: '45px' }}
-                        />
+                        {p.images && p.images[0] ? (
+                          <img
+                            src={p.images[0]}
+                            alt={p.name}
+                            className="rounded-2 object-fit-cover border"
+                            style={{ width: '45px', height: '45px' }}
+                          />
+                        ) : (
+                          <div
+                            className="rounded-2 bg-light d-flex align-items-center justify-content-center text-muted border"
+                            style={{ width: '45px', height: '45px' }}
+                          >
+                            <i className="bi bi-image"></i>
+                          </div>
+                        )}
                         <div>
-                          <div className="fw-bold text-white">{p.name}</div>
-                          <small className="text-muted">{p.brand}</small>
+                          <div className="fw-bold text-dark">{p.name}</div>
+                          <small className="text-muted">{p.brand || 'SMP'}</small>
                         </div>
                       </div>
                     </td>
                     <td>
-                      <div className="fw-semibold">{p.sku}</div>
+                      <div className="fw-semibold text-dark">{p.sku}</div>
                       <small className="text-muted">{p.barcode}</small>
                     </td>
-                    <td>{p.category?.name || 'Apparel'}</td>
+                    <td>
+                      <span className="badge bg-light text-primary border">
+                        {p.category?.name || 'Uncategorized'}
+                      </span>
+                    </td>
                     <td>₹{p.costPrice}</td>
-                    <td className="fw-semibold">₹{p.sellingPrice}</td>
+                    <td className="fw-semibold text-dark">₹{p.sellingPrice}</td>
                     <td>{p.gstPercent || 5}%</td>
                     <td className="fw-bold text-primary">₹{p.finalPrice}</td>
                     <td>
-                      <span className={`badge ${p.availableQuantity <= 5 ? 'bg-danger' : 'bg-success'}`}>
+                      <span className={`badge ${p.availableQuantity <= (p.lowStockThreshold || 5) ? 'bg-danger' : 'bg-success'}`}>
                         {p.availableQuantity} in stock
                       </span>
                     </td>
@@ -249,8 +321,10 @@ const AdminProducts = () => {
                         <button
                           onClick={() => setEditingProduct({
                             ...p,
-                            sizes: Array.isArray(p.sizes) ? p.sizes.join(', ') : p.sizes,
-                            colours: Array.isArray(p.colours) ? p.colours.join(', ') : p.colours
+                            category: p.category?._id || p.category,
+                            sizes: Array.isArray(p.sizes) ? p.sizes.join(', ') : (p.sizes || ''),
+                            colours: Array.isArray(p.colours) ? p.colours.join(', ') : (p.colours || ''),
+                            images: Array.isArray(p.images) ? p.images : []
                           })}
                           className="btn btn-outline-secondary"
                           title="Edit"
@@ -276,22 +350,31 @@ const AdminProducts = () => {
 
       {/* Add Product Modal */}
       {showAddModal && (
-        <div className="modal show d-block bg-dark bg-opacity-75 fade-in" tabIndex="-1">
+        <div className="modal show d-block bg-dark bg-opacity-50 fade-in" tabIndex="-1">
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content rounded-4 border-0 shadow">
-              <div className="modal-header border-0 pb-0">
-                <h5 className="modal-title fw-bold text-white">Add New Product to Shop Catalog</h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setShowAddModal(false)}></button>
+              <div className="modal-header border-bottom">
+                <h5 className="modal-title fw-bold text-dark">
+                  <i className="bi bi-box-seam text-primary me-2"></i>Add New Product
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
               </div>
               <form onSubmit={handleCreateProduct}>
-                <div className="modal-body">
+                <div className="modal-body p-4">
+                  {categories.length === 0 && (
+                    <div className="alert alert-danger small mb-3">
+                      <strong>Category Required:</strong> You cannot save a product without a Category. Please close this and create a category first.
+                    </div>
+                  )}
+
                   <div className="row g-3">
                     <div className="col-md-8">
-                      <label className="form-label small fw-semibold">Product Name *</label>
+                      <label className="form-label small fw-semibold">Product Name <span className="text-danger">*</span></label>
                       <input
                         type="text"
                         required
                         className="form-control"
+                        placeholder="e.g. Premium Silk Saree"
                         value={newProd.name}
                         onChange={(e) => setNewProd({ ...newProd, name: e.target.value })}
                       />
@@ -301,29 +384,21 @@ const AdminProducts = () => {
                       <input
                         type="text"
                         className="form-control"
+                        placeholder="e.g. SMP"
                         value={newProd.brand}
                         onChange={(e) => setNewProd({ ...newProd, brand: e.target.value })}
                       />
                     </div>
 
                     <div className="col-md-4">
-                      <label className="form-label small fw-semibold">SKU (Auto or Custom)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. SMP-DRS-09"
-                        className="form-control text-uppercase"
-                        value={newProd.sku}
-                        onChange={(e) => setNewProd({ ...newProd, sku: e.target.value })}
-                      />
-                    </div>
-
-                    <div className="col-md-4">
-                      <label className="form-label small fw-semibold">Category *</label>
+                      <label className="form-label small fw-semibold">Category <span className="text-danger">*</span></label>
                       <select
                         className="form-select"
+                        required
                         value={newProd.category}
                         onChange={(e) => setNewProd({ ...newProd, category: e.target.value })}
                       >
+                        <option value="">-- Select Category --</option>
                         {categories.map((c) => (
                           <option key={c._id} value={c._id}>{c.name}</option>
                         ))}
@@ -331,47 +406,65 @@ const AdminProducts = () => {
                     </div>
 
                     <div className="col-md-4">
-                      <label className="form-label small fw-semibold">Stock Quantity *</label>
+                      <label className="form-label small fw-semibold">SKU (Auto or Custom)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. SMP-DRS-01"
+                        className="form-control text-uppercase"
+                        value={newProd.sku}
+                        onChange={(e) => setNewProd({ ...newProd, sku: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="col-md-4">
+                      <label className="form-label small fw-semibold">Stock Quantity <span className="text-danger">*</span></label>
                       <input
                         type="number"
                         required
                         min="0"
+                        placeholder="0"
                         className="form-control"
                         value={newProd.availableQuantity}
-                        onChange={(e) => setNewProd({ ...newProd, availableQuantity: Number(e.target.value) })}
+                        onChange={(e) => setNewProd({ ...newProd, availableQuantity: e.target.value })}
                       />
                     </div>
 
                     <div className="col-md-3 col-6">
-                      <label className="form-label small fw-semibold">Cost Price (₹) *</label>
+                      <label className="form-label small fw-semibold">Cost Price (₹) <span className="text-danger">*</span></label>
                       <input
                         type="number"
                         required
+                        min="0"
+                        placeholder="0"
                         className="form-control"
                         value={newProd.costPrice}
-                        onChange={(e) => setNewProd({ ...newProd, costPrice: Number(e.target.value) })}
+                        onChange={(e) => setNewProd({ ...newProd, costPrice: e.target.value })}
                       />
                     </div>
 
                     <div className="col-md-3 col-6">
-                      <label className="form-label small fw-semibold">Original Price (₹) *</label>
+                      <label className="form-label small fw-semibold">Original Price (₹) <span className="text-danger">*</span></label>
                       <input
                         type="number"
                         required
+                        min="0"
+                        placeholder="0"
                         className="form-control"
                         value={newProd.originalPrice}
-                        onChange={(e) => setNewProd({ ...newProd, originalPrice: Number(e.target.value) })}
+                        onChange={(e) => setNewProd({ ...newProd, originalPrice: e.target.value })}
                       />
                     </div>
 
                     <div className="col-md-3 col-6">
-                      <label className="form-label small fw-semibold">Selling Price (₹) *</label>
+                      <label className="form-label small fw-semibold">Selling Price (₹) <span className="text-danger">*</span></label>
                       <input
                         type="number"
                         required
+                        min="0"
+                        placeholder="0"
                         className="form-control"
                         value={newProd.sellingPrice}
-                        onChange={(e) => setNewProd({ ...newProd, sellingPrice: Number(e.target.value) })}
+                        onChange={(e) => setNewProd({ ...newProd, sellingPrice: e.target.value })}
                       />
                     </div>
 
@@ -384,7 +477,7 @@ const AdminProducts = () => {
                       >
                         <option value="5">5% (Standard Apparel)</option>
                         <option value="12">12% (Luxury Apparel)</option>
-                        <option value="18">18% (Accessories)</option>
+                        <option value="18">18% (Accessories / Footwear)</option>
                       </select>
                     </div>
 
@@ -392,6 +485,7 @@ const AdminProducts = () => {
                       <label className="form-label small fw-semibold">Available Sizes (Comma separated)</label>
                       <input
                         type="text"
+                        placeholder="e.g. S, M, L, XL"
                         className="form-control"
                         value={newProd.sizes}
                         onChange={(e) => setNewProd({ ...newProd, sizes: e.target.value })}
@@ -399,31 +493,31 @@ const AdminProducts = () => {
                     </div>
 
                     <div className="col-md-6">
-                      <label className="form-label small fw-semibold">Available Colours</label>
+                      <label className="form-label small fw-semibold">Available Colours (Comma separated)</label>
                       <input
                         type="text"
+                        placeholder="e.g. Navy Blue, Maroon, Teal"
                         className="form-control"
                         value={newProd.colours}
                         onChange={(e) => setNewProd({ ...newProd, colours: e.target.value })}
                       />
                     </div>
 
+                    {/* Multi-Image Upload */}
                     <div className="col-12">
-                      <label className="form-label small fw-semibold">Product Image URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://..."
-                        className="form-control"
-                        value={newProd.imageUrl}
-                        onChange={(e) => setNewProd({ ...newProd, imageUrl: e.target.value })}
+                      <label className="form-label small fw-semibold">Product Images (Gallery / Camera / Files)</label>
+                      <ProductImageUploader
+                        images={newProd.images}
+                        onChange={(imgs) => setNewProd({ ...newProd, images: imgs })}
                       />
                     </div>
 
                     <div className="col-12">
-                      <label className="form-label small fw-semibold">Product Description *</label>
+                      <label className="form-label small fw-semibold">Product Description <span className="text-danger">*</span></label>
                       <textarea
                         rows="3"
                         required
+                        placeholder="Enter comprehensive product details, fabric, fit, and care instructions..."
                         className="form-control"
                         value={newProd.description}
                         onChange={(e) => setNewProd({ ...newProd, description: e.target.value })}
@@ -432,11 +526,15 @@ const AdminProducts = () => {
                   </div>
                 </div>
 
-                <div className="modal-footer border-0 pt-0">
-                  <button type="button" className="btn btn-outline-secondary" onClick={() => setShowAddModal(false)}>
+                <div className="modal-footer border-top bg-light">
+                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setShowAddModal(false)}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary px-4 fw-semibold">
+                  <button
+                    type="submit"
+                    disabled={categories.length === 0}
+                    className="btn btn-primary rounded-pill px-4 fw-semibold"
+                  >
                     Save Product
                   </button>
                 </div>
@@ -448,18 +546,20 @@ const AdminProducts = () => {
 
       {/* Edit Product Modal */}
       {editingProduct && (
-        <div className="modal show d-block bg-dark bg-opacity-75 fade-in" tabIndex="-1">
+        <div className="modal show d-block bg-dark bg-opacity-50 fade-in" tabIndex="-1">
           <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div className="modal-content rounded-4 border-0 shadow">
-              <div className="modal-header border-0 pb-0">
-                <h5 className="modal-title fw-bold text-white">Edit Product ({editingProduct.sku})</h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setEditingProduct(null)}></button>
+              <div className="modal-header border-bottom">
+                <h5 className="modal-title fw-bold text-dark">
+                  <i className="bi bi-pencil-square text-primary me-2"></i>Edit Product ({editingProduct.sku})
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setEditingProduct(null)}></button>
               </div>
               <form onSubmit={handleUpdateProduct}>
-                <div className="modal-body">
+                <div className="modal-body p-4">
                   <div className="row g-3">
                     <div className="col-md-8">
-                      <label className="form-label small fw-semibold">Product Name</label>
+                      <label className="form-label small fw-semibold">Product Name <span className="text-danger">*</span></label>
                       <input
                         type="text"
                         required
@@ -478,27 +578,66 @@ const AdminProducts = () => {
                       />
                     </div>
 
-                    <div className="col-md-3 col-6">
+                    <div className="col-md-4">
+                      <label className="form-label small fw-semibold">Category <span className="text-danger">*</span></label>
+                      <select
+                        className="form-select"
+                        required
+                        value={editingProduct.category}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
+                      >
+                        {categories.map((c) => (
+                          <option key={c._id} value={c._id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="col-md-4">
+                      <label className="form-label small fw-semibold">Stock Quantity <span className="text-danger">*</span></label>
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        className="form-control"
+                        value={editingProduct.availableQuantity}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, availableQuantity: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="col-md-4">
                       <label className="form-label small fw-semibold">Cost Price (₹)</label>
                       <input
                         type="number"
+                        min="0"
                         className="form-control"
                         value={editingProduct.costPrice}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, costPrice: Number(e.target.value) })}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, costPrice: e.target.value })}
                       />
                     </div>
 
-                    <div className="col-md-3 col-6">
+                    <div className="col-md-4">
+                      <label className="form-label small fw-semibold">Original Price (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="form-control"
+                        value={editingProduct.originalPrice}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, originalPrice: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="col-md-4">
                       <label className="form-label small fw-semibold">Selling Price (₹)</label>
                       <input
                         type="number"
+                        min="0"
                         className="form-control"
                         value={editingProduct.sellingPrice}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, sellingPrice: Number(e.target.value) })}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, sellingPrice: e.target.value })}
                       />
                     </div>
 
-                    <div className="col-md-3 col-6">
+                    <div className="col-md-4">
                       <label className="form-label small fw-semibold">GST %</label>
                       <input
                         type="number"
@@ -508,13 +647,32 @@ const AdminProducts = () => {
                       />
                     </div>
 
-                    <div className="col-md-3 col-6">
-                      <label className="form-label small fw-semibold">Stock Quantity</label>
+                    <div className="col-md-6">
+                      <label className="form-label small fw-semibold">Available Sizes</label>
                       <input
-                        type="number"
+                        type="text"
                         className="form-control"
-                        value={editingProduct.availableQuantity}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, availableQuantity: Number(e.target.value) })}
+                        value={editingProduct.sizes}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, sizes: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="col-md-6">
+                      <label className="form-label small fw-semibold">Available Colours</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={editingProduct.colours}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, colours: e.target.value })}
+                      />
+                    </div>
+
+                    {/* Multi-Image Upload */}
+                    <div className="col-12">
+                      <label className="form-label small fw-semibold">Product Images</label>
+                      <ProductImageUploader
+                        images={editingProduct.images || []}
+                        onChange={(imgs) => setEditingProduct({ ...editingProduct, images: imgs })}
                       />
                     </div>
 
@@ -530,11 +688,11 @@ const AdminProducts = () => {
                   </div>
                 </div>
 
-                <div className="modal-footer border-0 pt-0">
-                  <button type="button" className="btn btn-outline-secondary" onClick={() => setEditingProduct(null)}>
+                <div className="modal-footer border-top bg-light">
+                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setEditingProduct(null)}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary px-4 fw-semibold">
+                  <button type="submit" className="btn btn-primary rounded-pill px-4 fw-semibold">
                     Save Changes
                   </button>
                 </div>

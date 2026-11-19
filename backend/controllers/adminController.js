@@ -648,15 +648,30 @@ const updateGstSettings = async (req, res) => {
 const getWhatsAppSettings = async (req, res) => {
   try {
     const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
-    const whatsapp = (shop && shop.settings && shop.settings.whatsappSettings) ? shop.settings.whatsappSettings : {
+    const defaultSettings = {
       enabled: false,
       apiUrl: 'https://graph.facebook.com/v18.0',
       apiKey: '',
       phoneNumberId: '',
+      businessAccountId: '',
+      businessPhoneNumber: '+91 98400 12345',
+      adminNotificationNumber: '+91 98400 23456',
+      ownerNotificationNumber: '+91 98400 12345',
+      notifyOnNewBill: true,
+      notifyOnOrderConfirmation: true,
+      notifyOnPaymentConfirmation: true,
       notifyOnOffer: false,
       notifyOnCoupon: false,
-      notifyOnInvoice: false
+      notifyOnInvoice: true,
+      notifyOnFailedMessage: true,
+      notifyOnSystemAlerts: true,
+      apiConnectionStatus: 'SIMULATED'
     };
+
+    const whatsapp = (shop && shop.settings && shop.settings.whatsappSettings)
+      ? { ...defaultSettings, ...shop.settings.whatsappSettings }
+      : defaultSettings;
+
     res.status(200).json({ success: true, settings: whatsapp });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -668,12 +683,73 @@ const updateWhatsAppSettings = async (req, res) => {
     const shop = (await Shop.findById(req.user.shopId)) || (await Shop.findOne({ isActive: true }));
     if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
     shop.settings = shop.settings || {};
-    shop.settings.whatsappSettings = {
-      ...shop.settings.whatsappSettings,
-      ...req.body
-    };
+
+    const existing = shop.settings.whatsappSettings || {};
+
+    // Role-based field updates:
+    // If Owner: master authority over all fields
+    // If Admin: can update adminNotificationNumber and operational notification toggles
+    let updated;
+    if (req.user.role === 'owner') {
+      updated = {
+        ...existing,
+        ...req.body
+      };
+    } else {
+      // Admin role
+      updated = {
+        ...existing,
+        adminNotificationNumber: req.body.adminNotificationNumber !== undefined ? req.body.adminNotificationNumber : existing.adminNotificationNumber,
+        notifyOnNewBill: req.body.notifyOnNewBill !== undefined ? req.body.notifyOnNewBill : existing.notifyOnNewBill,
+        notifyOnOrderConfirmation: req.body.notifyOnOrderConfirmation !== undefined ? req.body.notifyOnOrderConfirmation : existing.notifyOnOrderConfirmation,
+        notifyOnPaymentConfirmation: req.body.notifyOnPaymentConfirmation !== undefined ? req.body.notifyOnPaymentConfirmation : existing.notifyOnPaymentConfirmation,
+        notifyOnFailedMessage: req.body.notifyOnFailedMessage !== undefined ? req.body.notifyOnFailedMessage : existing.notifyOnFailedMessage,
+        notifyOnSystemAlerts: req.body.notifyOnSystemAlerts !== undefined ? req.body.notifyOnSystemAlerts : existing.notifyOnSystemAlerts
+      };
+    }
+
+    shop.settings.whatsappSettings = updated;
     await shop.save();
-    res.status(200).json({ success: true, message: 'WhatsApp settings updated successfully', settings: shop.settings.whatsappSettings });
+
+    emitRealtimeUpdate(req.app, 'whatsapp:settings:updated', { settings: updated, updatedBy: req.user.role });
+
+    res.status(200).json({
+      success: true,
+      message: `${req.user.role === 'owner' ? 'Master' : 'Admin'} WhatsApp settings updated successfully`,
+      settings: shop.settings.whatsappSettings
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get Admin Operational Alerts & System Health (Billing Errors, Failed Notifications, Order Issues)
+ * @route   GET /api/admin/operational-alerts
+ * @access  Private (Admin, Owner)
+ */
+const getAdminOperationalAlerts = async (req, res) => {
+  try {
+    const failedMessages = await WhatsAppLog.find({ status: 'FAILED' }).sort({ createdAt: -1 }).limit(10);
+    const lowStockItems = await Product.find({
+      $expr: { $lte: ['$availableQuantity', '$lowStockThreshold'] },
+      isActive: true
+    }).select('name sku availableQuantity lowStockThreshold');
+
+    const Invoice = require('../models/Invoice');
+    const cancelledBills = await Invoice.find({ isDeleted: true }).sort({ updatedAt: -1 }).limit(10);
+
+    res.status(200).json({
+      success: true,
+      alerts: {
+        failedMessagesCount: failedMessages.length,
+        failedMessages,
+        lowStockCount: lowStockItems.length,
+        lowStockItems,
+        cancelledBillsCount: cancelledBills.length,
+        cancelledBills
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -935,6 +1011,7 @@ module.exports = {
   getWhatsAppSettings,
   updateWhatsAppSettings,
   getWhatsAppLogs,
+  getAdminOperationalAlerts,
   getCoupons,
   createCoupon,
   updateCoupon,

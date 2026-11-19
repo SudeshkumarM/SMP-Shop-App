@@ -19,23 +19,24 @@ const Order = require('../models/Order');
 const Invoice = require('../models/Invoice');
 const Coupon = require('../models/Coupon');
 const WhatsAppLog = require('../models/WhatsAppLog');
-const { generateInvoiceBarcode } = require('../utils/generateBarcode');
+const ScannerSettings = require('../models/ScannerSettings');
+const QRCode = require('../models/QRCode');
 
-const seedAll = async () => {
+const seedCleanDatabase = async () => {
   try {
     await connectDB();
-    console.log('[Seed] Connected to database. Dropping previous collections for a clean setup...');
+    console.log('[Clean Seed] Connected to database. Performing one-time cleanup of all demo data...');
 
     try {
       await mongoose.connection.db.dropDatabase();
-      console.log('[Seed] Database cleanly reset.');
+      console.log('[Clean Seed] Database cleanly wiped of all demo customers, staff, admins, products, categories & bills.');
     } catch (e) {
-      console.log('[Seed] Drop database warning:', e.message);
+      console.log('[Clean Seed] Drop database note:', e.message);
     }
 
-    console.log('[Seed] 1. Creating Master Owner Kumar...');
+    console.log('[Clean Seed] Creating Essential Master Owner Account...');
 
-    // 1. Create Owner User & Profile
+    // 1. Create Essential Master Owner Account (Required for initial access)
     const ownerUser = await User.create({
       name: 'Kumar',
       username: 'kumar',
@@ -59,18 +60,27 @@ const seedAll = async () => {
       panNumber: 'ABCDE1234F'
     });
 
-    console.log('[Seed] 2. Creating SMP Shop & Branch...');
+    console.log('[Clean Seed] Creating Initial Shop & Flagship Branch...');
 
-    // 2. Create Flagship Dress Shop
+    // 2. Create Flagship Retail Shop Container
     const dressShop = await Shop.create({
       shopCode: 'SMP',
       name: 'SMP Elite Fashions',
       category: 'Dress & Apparel',
-      description: 'SMP Retail & E-Commerce platform for premium clothing & multi-category retail.',
-      logo: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=600&q=80',
+      description: 'SMP official retail storefront and enterprise management system.',
+      logo: '',
       gstNumber: '33AAAAA0000A1Z5',
       contactEmail: 'contact@smp.com',
       contactPhone: '+91 98400 12345',
+      businessPhoneNumber: '+91 98400 12345',
+      adminNotificationNumber: '+91 98400 23456',
+      ownerNotificationNumber: '+91 98400 12345',
+      notifyOnNewBill: true,
+      notifyOnOrderConfirmation: true,
+      notifyOnPaymentConfirmation: true,
+      notifyOnFailedMessage: true,
+      notifyOnSystemAlerts: true,
+      apiConnectionStatus: 'DISCONNECTED',
       address: {
         street: '100 Feet Road, Anna Nagar',
         city: 'Chennai',
@@ -111,7 +121,7 @@ const seedAll = async () => {
       }
     });
 
-    // 3. Create Main Branch
+    // 3. Create Main Branch Container
     const mainBranch = await Branch.create({
       branchCode: 'SMP-B01',
       shopId: dressShop._id,
@@ -132,131 +142,36 @@ const seedAll = async () => {
     ownerUser.branchId = mainBranch._id;
     await ownerUser.save();
 
-    console.log('[Seed] 3. Creating Admin & Individual Staff Accounts...');
-
-    // 4. Create Admin Account
-    const adminUser = await User.create({
-      name: 'Priya Sharma',
-      username: 'admin01',
-      email: 'admin@smp.com',
-      phone: '9840023456',
-      password: 'Password123',
-      role: 'admin',
+    // 4. Create Default Hardware Scanner Settings
+    await ScannerSettings.create({
       shopId: dressShop._id,
-      branchId: mainBranch._id,
-      isActive: true
+      scannerType: 'USB_BARCODE',
+      barcodeFormat: 'CODE128',
+      qrConfig: { prefix: 'smp:', payloadType: 'PRODUCT_OR_INVOICE', errorCorrection: 'M' },
+      scannerActivated: true,
+      defaultScanner: 'USB_BARCODE'
     });
 
-    await Admin.create({
-      userId: adminUser._id,
-      adminId: 'ADM-101',
-      username: 'admin01',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      fullName: 'Priya Sharma',
-      email: adminUser.email,
-      phone: adminUser.phone
-    });
-
-    // 5. Create Staff (kumar01 - Cashier)
-    const staff1User = await User.create({
-      name: 'Kumar',
-      username: 'kumar01',
-      email: 'staff@smp.com',
-      phone: '9840034567',
-      password: 'Password123',
-      role: 'staff',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      isActive: true
-    });
-
-    const staff1 = await Staff.create({
-      userId: staff1User._id,
-      staffId: 'STF-1001',
-      username: 'kumar01',
-      shopId: dressShop._id,
-      branchId: mainBranch._id,
-      fullName: 'Kumar',
-      email: staff1User.email,
-      phone: staff1User.phone,
-      department: 'Billing & POS',
-      designation: 'Senior Cashier & Billing Executive',
-      jobRole: 'Senior Cashier',
-      canEditBills: true,
-      salary: 28000,
-      totalBillsGenerated: 0,
-      totalSalesValue: 0
-    });
-
-    console.log('[Seed] 4. Creating Customer Account...');
-
-    // 6. Create Customer Account (Kumar)
-    const customerUser = await User.create({
-      name: 'Kumar',
-      username: 'kumar_customer',
-      email: 'customer@smp.com',
-      phone: '9876543210',
-      password: 'Password123',
-      role: 'customer',
-      shopId: dressShop._id,
-      isPhoneVerified: true,
-      isEmailVerified: true
-    });
-
-    const customer = await Customer.create({
-      userId: customerUser._id,
-      customerId: 'CUST-1001',
-      username: 'kumar_customer',
-      fullName: 'Kumar',
-      email: customerUser.email,
-      phone: customerUser.phone,
-      isPhoneVerified: true,
-      loyaltyPoints: 0,
-      totalPurchases: 0,
-      totalSpend: 0,
-      consentPromotionalWhatsApp: true,
-      addresses: [{
-        title: 'Home',
-        street: '15 Gandhi Road, T. Nagar',
-        city: 'Chennai',
-        state: 'Tamil Nadu',
-        pincode: '600017',
-        country: 'India',
-        isDefault: true
-      }]
-    });
-
-    console.log('[Seed] 5. Creating Category (Clothing) with ZERO Initial Products...');
-
-    // 7. Initial Category (Clothing) - Ready for Admin/Owner to add products
-    await Category.create({
-      name: 'Clothing',
-      slug: 'clothing',
-      description: 'Apparel & garment collections curated by SMP store managers.',
-      image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80',
-      shopId: dressShop._id,
-      displayOrder: 1,
-      isActive: true
-    });
-
-    console.log('\n=============================================================');
-    console.log('  🎉 DATABASE SEEDING COMPLETED WITH CLEAN PRODUCTION DATA!');
-    console.log('=============================================================');
-    console.log('  ▸ Initial Products: 0 Products (Clean catalog ready for Admin/Owner additions)');
-    console.log('  ▸ Initial Category: "Clothing"');
-    console.log('  ▸ Owner:            owner@smp.com / kumar / Password123');
-    console.log('  ▸ Admin:            admin@smp.com / admin01 / Password123');
-    console.log('  ▸ Staff:            staff@smp.com / kumar01 / Password123 (Can Edit Bills)');
-    console.log('  ▸ Customer:         customer@smp.com / kumar_customer / Password123');
-    console.log('  ▸ Product Add:      Admin & Owner can add new products anytime');
-    console.log('=============================================================\n');
+    console.log('\n================================================================');
+    console.log('  🎉 INITIAL CLEAN DATABASE INITIALIZATION COMPLETE!');
+    console.log('================================================================');
+    console.log('  ▸ Initial Products:    0 Products (Completely clean catalog)');
+    console.log('  ▸ Initial Categories:  0 Categories (Admin/Owner must create)');
+    console.log('  ▸ Initial Customers:   0 Customers');
+    console.log('  ▸ Initial Staff:       0 Staff');
+    console.log('  ▸ Initial Admins:      0 Admins (Owner can create in Owner Portal)');
+    console.log('  ▸ Initial Invoices:    0 Invoices / Bills (Dashboards start at ₹0)');
+    console.log('  ▸ Initial Orders:      0 Orders');
+    console.log('  ▸ Initial Investments: 0 Investments');
+    console.log('  ▸ Initial Expenses:    0 Expenses');
+    console.log('  ▸ Essential Owner:     owner@smp.com / kumar / Password123');
+    console.log('================================================================\n');
 
     process.exit(0);
   } catch (error) {
-    console.error('[Seed Error]:', error);
+    console.error('[Clean Seed Error]:', error);
     process.exit(1);
   }
 };
 
-seedAll();
+seedCleanDatabase();

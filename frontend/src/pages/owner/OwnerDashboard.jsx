@@ -77,7 +77,7 @@ const OwnerDashboard = () => {
       <div className="row g-3 mb-4">
         {/* Total Revenue */}
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100">
+          <div className="smp-card p-3 h-100 smp-card-blue">
             <div className="d-flex justify-content-between align-items-center mb-2">
               <small className="text-muted text-uppercase fw-bold">Total Sales Revenue</small>
               <i className="bi bi-cash-stack text-primary fs-4"></i>
@@ -89,10 +89,10 @@ const OwnerDashboard = () => {
 
         {/* Capital Investments */}
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100">
+          <div className="smp-card p-3 h-100 smp-card-purple">
             <div className="d-flex justify-content-between align-items-center mb-2">
               <small className="text-muted text-uppercase fw-bold">Total Capital Invested</small>
-              <i className="bi bi-bank text-info fs-4"></i>
+              <i className="bi bi-bank text-purple fs-4"></i>
             </div>
             <div className="fs-4 fw-bold text-dark">₹{k.totalInvestment?.toFixed(2)}</div>
             <small className="text-muted">Equity, interior & hardware</small>
@@ -101,7 +101,7 @@ const OwnerDashboard = () => {
 
         {/* Operating Expenses */}
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100">
+          <div className="smp-card p-3 h-100 smp-card-coral">
             <div className="d-flex justify-content-between align-items-center mb-2">
               <small className="text-muted text-uppercase fw-bold">Operating Expenses</small>
               <i className="bi bi-receipt text-danger fs-4"></i>
@@ -113,7 +113,7 @@ const OwnerDashboard = () => {
 
         {/* Mathematical True Net Profit */}
         <div className="col-xl-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 border-start border-success border-4">
+          <div className="smp-card p-3 h-100 smp-card-green">
             <div className="d-flex justify-content-between align-items-center mb-2">
               <small className="text-muted text-uppercase fw-bold">Net Profit (True Math)</small>
               <span className={`badge ${k.netProfit >= 0 ? 'bg-success' : 'bg-danger'}`}>
@@ -131,39 +131,39 @@ const OwnerDashboard = () => {
       {/* Secondary Operational Counts */}
       <div className="row g-3 mb-4">
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
+          <div className="smp-card p-3 text-center smp-card-blue">
             <div className="fs-4 fw-bold text-primary">{k.totalShops}</div>
-            <small className="text-muted">Active Shops</small>
+            <small className="text-muted fw-semibold">Active Shops</small>
           </div>
         </div>
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
-            <div className="fs-4 fw-bold">{k.totalBranches}</div>
-            <small className="text-muted">Store Branches</small>
+          <div className="smp-card p-3 text-center smp-card-sky">
+            <div className="fs-4 fw-bold text-info">{k.totalBranches}</div>
+            <small className="text-muted fw-semibold">Store Branches</small>
           </div>
         </div>
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
-            <div className="fs-4 fw-bold">{k.totalAdmins}</div>
-            <small className="text-muted">Admins</small>
+          <div className="smp-card p-3 text-center smp-card-purple">
+            <div className="fs-4 fw-bold text-purple">{k.totalAdmins}</div>
+            <small className="text-muted fw-semibold">Admins</small>
           </div>
         </div>
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
-            <div className="fs-4 fw-bold">{k.totalStaff}</div>
-            <small className="text-muted">Staff</small>
+          <div className="smp-card p-3 text-center smp-card-teal">
+            <div className="fs-4 fw-bold text-teal">{k.totalStaff}</div>
+            <small className="text-muted fw-semibold">Staff</small>
           </div>
         </div>
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
+          <div className="smp-card p-3 text-center smp-card-green">
             <div className="fs-4 fw-bold text-success">{k.totalCustomers}</div>
-            <small className="text-muted">Customers</small>
+            <small className="text-muted fw-semibold">Customers</small>
           </div>
         </div>
         <div className="col-md-2 col-4">
-          <div className="smp-card p-3 bg-white text-center">
-            <div className="fs-4 fw-bold">{k.totalProducts}</div>
-            <small className="text-muted">Products</small>
+          <div className="smp-card p-3 text-center smp-card-orange">
+            <div className="fs-4 fw-bold text-orange">{k.totalProducts}</div>
+            <small className="text-muted fw-semibold">Products</small>
           </div>
         </div>
       </div>

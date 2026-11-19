@@ -93,9 +93,18 @@ const shopSchema = new mongoose.Schema({
       apiKey: { type: String, default: '' },
       phoneNumberId: { type: String, default: '' },
       businessAccountId: { type: String, default: '' },
+      businessPhoneNumber: { type: String, default: '+91 98400 12345' },
+      adminNotificationNumber: { type: String, default: '+91 98400 23456' },
+      ownerNotificationNumber: { type: String, default: '+91 98400 12345' },
+      notifyOnNewBill: { type: Boolean, default: true },
+      notifyOnOrderConfirmation: { type: Boolean, default: true },
+      notifyOnPaymentConfirmation: { type: Boolean, default: true },
       notifyOnOffer: { type: Boolean, default: false },
       notifyOnCoupon: { type: Boolean, default: false },
-      notifyOnInvoice: { type: Boolean, default: false }
+      notifyOnInvoice: { type: Boolean, default: true },
+      notifyOnFailedMessage: { type: Boolean, default: true },
+      notifyOnSystemAlerts: { type: Boolean, default: true },
+      apiConnectionStatus: { type: String, enum: ['CONNECTED', 'SIMULATED', 'DISCONNECTED'], default: 'SIMULATED' }
     }
   }
 }, {

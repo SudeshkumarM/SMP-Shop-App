@@ -24,6 +24,7 @@ import CustomerRegister from '../pages/customer/CustomerRegister';
 import CustomerVerifyOtp from '../pages/customer/CustomerVerifyOtp';
 import CustomerLogin from '../pages/customer/CustomerLogin';
 import ForgotPassword from '../pages/customer/ForgotPassword';
+import ResetPassword from '../pages/customer/ResetPassword';
 import CustomerDashboard from '../pages/customer/CustomerDashboard';
 import CustomerProfile from '../pages/customer/CustomerProfile';
 import CustomerOrders from '../pages/customer/CustomerOrders';
@@ -59,6 +60,10 @@ import AdminSettings from '../pages/admin/AdminSettings';
 import AdminDeliverySettings from '../pages/admin/AdminDeliverySettings';
 import AdminGstSettings from '../pages/admin/AdminGstSettings';
 import AdminOffers from '../pages/admin/AdminOffers';
+import AdminBarcodeManagement from '../pages/admin/AdminBarcodeManagement';
+import AdminQRManagement from '../pages/admin/AdminQRManagement';
+import AdminScannerSettings from '../pages/admin/AdminScannerSettings';
+import AdminWhatsAppSettings from '../pages/admin/AdminWhatsAppSettings';
 
 // Owner Pages
 import OwnerLogin from '../pages/owner/OwnerLogin';
@@ -73,13 +78,17 @@ import OwnerProfits from '../pages/owner/OwnerProfits';
 import OwnerReports from '../pages/owner/OwnerReports';
 import OwnerSettings from '../pages/owner/OwnerSettings';
 import OwnerHelp from '../pages/owner/OwnerHelp';
+import OwnerWhatsAppSettings from '../pages/owner/OwnerWhatsAppSettings';
+
+// Common Audit & Bill History Page
+import CompleteBillHistory from '../pages/common/CompleteBillHistory';
 
 // 404 Not Found Page Component
 const NotFound = () => (
   <div className="container py-5 text-center my-auto">
     <div className="py-5">
       <div className="display-1 fw-bold text-primary mb-2">404</div>
-      <h2 className="fw-bold mb-3">Page Not Found</h2>
+      <h2 className="fw-bold mb-3 text-white">Page Not Found</h2>
       <p className="text-muted mb-4 lead">
         The requested page does not exist or has been moved within SMP.
       </p>
@@ -110,6 +119,8 @@ const AppRoutes = () => {
         <Route path="/customer/verify-otp" element={<CustomerVerifyOtp />} />
         <Route path="/customer/login" element={<CustomerLogin />} />
         <Route path="/customer/forgot-password" element={<ForgotPassword />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
 
         {/* Customer Checkout & Payment */}
         <Route
@@ -195,8 +206,13 @@ const AppRoutes = () => {
         <Route path="customers" element={<AdminCustomers />} />
         <Route path="staff" element={<AdminStaff />} />
         <Route path="products" element={<AdminProducts />} />
-        <Route path="billing" element={<AdminBilling />} />
         <Route path="categories" element={<AdminCategories />} />
+        <Route path="billing" element={<AdminBilling />} />
+        <Route path="complete-bill-history" element={<CompleteBillHistory role="admin" />} />
+        <Route path="barcodes" element={<AdminBarcodeManagement role="admin" />} />
+        <Route path="qr-codes" element={<AdminQRManagement role="admin" />} />
+        <Route path="scanner-settings" element={<AdminScannerSettings role="admin" />} />
+        <Route path="whatsapp-settings" element={<AdminWhatsAppSettings />} />
         <Route path="inventory" element={<AdminInventory />} />
         <Route path="orders" element={<AdminOrders />} />
         <Route path="reports" element={<AdminReports />} />
@@ -229,10 +245,15 @@ const AppRoutes = () => {
         <Route path="categories" element={<AdminCategories />} />
         <Route path="inventory" element={<AdminInventory />} />
         <Route path="orders" element={<AdminOrders />} />
+        <Route path="billing" element={<OwnerBilling />} />
+        <Route path="complete-bill-history" element={<CompleteBillHistory role="owner" />} />
+        <Route path="barcodes" element={<AdminBarcodeManagement role="owner" />} />
+        <Route path="qr-codes" element={<AdminQRManagement role="owner" />} />
+        <Route path="scanner-settings" element={<AdminScannerSettings role="owner" />} />
+        <Route path="whatsapp-settings" element={<OwnerWhatsAppSettings />} />
         <Route path="delivery-settings" element={<AdminDeliverySettings />} />
         <Route path="gst-settings" element={<AdminGstSettings />} />
         <Route path="offers" element={<AdminOffers />} />
-        <Route path="billing" element={<OwnerBilling />} />
         <Route path="investments" element={<OwnerInvestments />} />
         <Route path="expenses" element={<OwnerExpenses />} />
         <Route path="profits" element={<OwnerProfits />} />

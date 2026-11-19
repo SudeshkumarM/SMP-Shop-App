@@ -3,6 +3,7 @@ const Category = require('../models/Category');
 const Inventory = require('../models/Inventory');
 const Shop = require('../models/Shop');
 const Coupon = require('../models/Coupon');
+const QRCode = require('../models/QRCode');
 const xlsx = require('xlsx');
 const { generateProductBarcode } = require('../utils/generateBarcode');
 const { emitRealtimeUpdate } = require('../utils/realtime');
@@ -187,9 +188,38 @@ const createProduct = async (req, res) => {
       tags = []
     } = req.body;
 
-    const shopId = req.user.shopId || req.body.shopId;
+    // Strict Category-First Validation
+    if (!category) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid Category is required. Please create and select a Category before adding products.'
+      });
+    }
+
+    const existingCategory = await Category.findById(category);
+    if (!existingCategory) {
+      return res.status(400).json({
+        success: false,
+        message: 'The selected Category was not found. Please select or create an existing Category.'
+      });
+    }
+
+    let shopId = req.user?.shopId || req.body?.shopId;
     if (!shopId) {
-      return res.status(400).json({ success: false, message: 'Shop ID is required' });
+      const defaultShop = await Shop.findOne({ isActive: true });
+      if (defaultShop) {
+        shopId = defaultShop._id;
+      } else {
+        return res.status(400).json({ success: false, message: 'Shop ID is required' });
+      }
+    }
+
+    // Process multiple images
+    let productImages = [];
+    if (Array.isArray(images) && images.length > 0) {
+      productImages = images.filter(img => typeof img === 'string' && img.trim() !== '');
+    } else if (req.body.imageUrl && typeof req.body.imageUrl === 'string') {
+      productImages = [req.body.imageUrl];
     }
 
     // Final price calculation with GST
@@ -203,7 +233,7 @@ const createProduct = async (req, res) => {
       sku: (sku || `SKU-${Date.now().toString().slice(-6)}`).toUpperCase(),
       barcode: generatedBarcode,
       brand: brand || 'SMP Fashion',
-      category,
+      category: existingCategory._id,
       shopId,
       description,
       costPrice: costPrice || Math.round(originalPrice * 0.6),
@@ -214,7 +244,7 @@ const createProduct = async (req, res) => {
       finalPrice,
       availableQuantity,
       lowStockThreshold,
-      images,
+      images: productImages,
       sizes,
       colours,
       variants,
@@ -294,7 +324,16 @@ const updateProduct = async (req, res) => {
 
     if (name !== undefined) product.name = name;
     if (brand !== undefined) product.brand = brand;
-    if (category !== undefined) product.category = category;
+    if (category !== undefined) {
+      const existingCategory = await Category.findById(category);
+      if (!existingCategory) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected Category was not found. Please select an existing Category.'
+        });
+      }
+      product.category = existingCategory._id;
+    }
     if (description !== undefined) product.description = description;
     if (costPrice !== undefined) product.costPrice = costPrice;
     if (originalPrice !== undefined) product.originalPrice = originalPrice;
@@ -302,7 +341,13 @@ const updateProduct = async (req, res) => {
     if (discountPercent !== undefined) product.discountPercent = discountPercent;
     if (gstPercent !== undefined) product.gstPercent = gstPercent;
     if (lowStockThreshold !== undefined) product.lowStockThreshold = lowStockThreshold;
-    if (images !== undefined) product.images = images;
+    if (images !== undefined) {
+      if (Array.isArray(images)) {
+        product.images = images.filter(img => typeof img === 'string' && img.trim() !== '');
+      } else if (typeof images === 'string') {
+        product.images = [images];
+      }
+    }
     if (sizes !== undefined) product.sizes = sizes;
     if (colours !== undefined) product.colours = colours;
     if (variants !== undefined) product.variants = variants;
@@ -383,40 +428,520 @@ const deleteProduct = async (req, res) => {
 };
 
 /**
- * @desc    Get Categories
+ * @desc    Get Categories with search, status filtering, and linked products count
  * @route   GET /api/products/categories/list
- * @access  Public
+ * @access  Public / Private
  */
 const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find({ isActive: true }).sort({ displayOrder: 1, name: 1 });
-    res.status(200).json({ success: true, categories });
+    const { search, status } = req.query;
+    const filter = {};
+
+    if (status && status !== 'all') {
+      filter.status = status.toUpperCase();
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { categoryId: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const categories = await Category.find(filter).sort({ displayOrder: 1, createdAt: -1 });
+
+    // Compute products count for each category
+    const categoriesWithCount = await Promise.all(
+      categories.map(async (cat) => {
+        const productsCount = await Product.countDocuments({ category: cat._id, isActive: true });
+        return {
+          ...cat.toObject(),
+          productsCount
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, count: categoriesWithCount.length, categories: categoriesWithCount });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
- * @desc    Create Category
+ * @desc    Create Category (Does NOT automatically generate products)
  * @route   POST /api/products/categories
  * @access  Private (Admin, Owner)
  */
 const createCategory = async (req, res) => {
   try {
-    const { name, description, image } = req.body;
-    const shopId = req.user.shopId || req.body.shopId;
+    const { name, description, image, categoryId, status } = req.body;
+    let shopId = req.user?.shopId || req.body.shopId;
+    if (!shopId) {
+      const fallbackShop = await Shop.findOne({ isActive: true });
+      shopId = fallbackShop?._id;
+    }
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Category Name is required' });
+    }
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
+    // Check duplicate name or slug in this shop
+    const existing = await Category.findOne({
+      shopId,
+      $or: [{ name: name.trim() }, { slug }]
+    });
+
+    if (existing) {
+      return res.status(400).json({ success: false, message: `Category with name "${name}" already exists` });
+    }
+
+    const autoCatId = categoryId && categoryId.trim()
+      ? categoryId.trim().toUpperCase()
+      : `CAT-${Date.now().toString().slice(-4)}`;
+
     const category = await Category.create({
-      name,
+      categoryId: autoCatId,
+      name: name.trim(),
       slug,
-      description,
+      description: description || '',
       image: image || '',
+      status: status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
+      isActive: status !== 'INACTIVE',
       shopId
     });
 
-    res.status(201).json({ success: true, category });
+    emitRealtimeUpdate(req.app, 'category:updated', { action: 'CREATE', category });
+
+    res.status(201).json({ success: true, message: 'Category created successfully', category });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Update / Rename / Toggle Status of Category
+ * @route   PUT /api/products/categories/:id
+ * @access  Private (Admin, Owner)
+ */
+const updateCategory = async (req, res) => {
+  try {
+    const { name, description, image, categoryId, status } = req.body;
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+
+    if (name && name.trim()) {
+      category.name = name.trim();
+      category.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
+
+    if (description !== undefined) category.description = description;
+    if (image !== undefined) category.image = image;
+    if (categoryId && categoryId.trim()) category.categoryId = categoryId.trim().toUpperCase();
+
+    if (status) {
+      category.status = status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      category.isActive = category.status === 'ACTIVE';
+    }
+
+    await category.save();
+
+    emitRealtimeUpdate(req.app, 'category:updated', { action: 'UPDATE', category });
+
+    res.status(200).json({ success: true, message: 'Category updated successfully', category });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete Category
+ * @route   DELETE /api/products/categories/:id
+ * @access  Private (Admin, Owner)
+ */
+const deleteCategory = async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+
+    const linkedProductsCount = await Product.countDocuments({ category: category._id, isActive: true });
+    if (linkedProductsCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete category: ${linkedProductsCount} active product(s) are linked to it. Please reassign or remove products first.`
+      });
+    }
+
+    await Category.findByIdAndDelete(category._id);
+
+    emitRealtimeUpdate(req.app, 'category:updated', { action: 'DELETE', categoryId: category._id });
+
+    res.status(200).json({ success: true, message: 'Category deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get Barcode Management List
+ * @route   GET /api/products/barcodes/list
+ * @access  Private (Admin, Owner, Staff)
+ */
+const getBarcodesList = async (req, res) => {
+  try {
+    const { search, format } = req.query;
+    const filter = { isActive: true };
+
+    if (format && format !== 'all') {
+      filter.barcodeFormat = format;
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { name: { $regex: q, $options: 'i' } },
+        { sku: { $regex: q, $options: 'i' } },
+        { barcode: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const products = await Product.find(filter)
+      .populate('category', 'name categoryId')
+      .sort({ createdAt: -1 });
+
+    const barcodeList = products.map((p) => ({
+      productId: p._id,
+      productName: p.name,
+      sku: p.sku,
+      barcode: p.barcode,
+      barcodeFormat: p.barcodeFormat || 'CODE128',
+      categoryName: p.category?.name || 'General',
+      sellingPrice: p.sellingPrice,
+      stock: p.availableQuantity,
+      status: p.isActive ? 'ACTIVE' : 'INACTIVE',
+      createdAt: p.createdAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: barcodeList.length,
+      barcodes: barcodeList,
+      products: barcodeList
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Assign, Edit or Regenerate Barcode for Product
+ * @route   POST /api/products/barcodes/assign
+ * @access  Private (Admin, Owner)
+ */
+const assignOrUpdateBarcode = async (req, res) => {
+  try {
+    const { productId, barcode, barcodeFormat = 'CODE128' } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({ success: false, message: 'Product ID is required' });
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    let targetBarcode = barcode && barcode.trim()
+      ? barcode.trim()
+      : generateProductBarcode(product.sku || 'SMP');
+
+    // Ensure barcode uniqueness
+    const existing = await Product.findOne({
+      barcode: targetBarcode,
+      _id: { $ne: product._id },
+      isActive: true
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: `Barcode "${targetBarcode}" is already assigned to "${existing.name}" (SKU: ${existing.sku}). Barcodes must be unique.`
+      });
+    }
+
+    product.barcode = targetBarcode;
+    product.barcodeFormat = barcodeFormat;
+    await product.save();
+
+    emitRealtimeUpdate(req.app, 'product:updated', { product });
+
+    res.status(200).json({
+      success: true,
+      message: 'Barcode assigned successfully',
+      product: {
+        _id: product._id,
+        name: product.name,
+        sku: product.sku,
+        barcode: product.barcode,
+        barcodeFormat: product.barcodeFormat
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete / Clear Barcode for Product
+ * @route   DELETE /api/products/barcodes/:productId
+ * @access  Private (Admin, Owner)
+ */
+const deleteBarcode = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    // Assign fallback barcode so product remains queryable and unique
+    product.barcode = generateProductBarcode(`DEL-${Date.now().toString().slice(-4)}`);
+    await product.save();
+
+    emitRealtimeUpdate(req.app, 'product:updated', { product });
+
+    res.status(200).json({ success: true, message: 'Barcode cleared and reset successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Lookup Product by Barcode (Used by Staff POS Barcode Scanner)
+ * @route   GET /api/products/by-barcode/:barcode
+ * @access  Private (Staff, Admin, Owner)
+ */
+const lookupProductByBarcode = async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    const cleanBarcode = String(barcode).trim();
+
+    const product = await Product.findOne({
+      $or: [
+        { barcode: cleanBarcode },
+        { sku: cleanBarcode.toUpperCase() },
+        { barcode: { $regex: cleanBarcode, $options: 'i' } }
+      ],
+      isActive: true
+    }).populate('category', 'name');
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: `No active product found matching barcode: ${cleanBarcode}`
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      product: {
+        _id: product._id,
+        name: product.name,
+        sku: product.sku,
+        barcode: product.barcode,
+        barcodeFormat: product.barcodeFormat || 'CODE128',
+        sellingPrice: product.sellingPrice,
+        costPrice: product.costPrice,
+        gstPercent: product.gstPercent || 5,
+        availableQuantity: product.availableQuantity,
+        sizes: product.sizes,
+        colours: product.colours,
+        images: product.images
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get QR Codes Directory
+ * @route   GET /api/products/qr-codes/list
+ * @access  Private (Admin, Owner, Staff)
+ */
+const getQRCodesList = async (req, res) => {
+  try {
+    const { type, search } = req.query;
+    const filter = {};
+
+    if (type && type !== 'all') {
+      filter.qrType = type.toUpperCase();
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { title: { $regex: q, $options: 'i' } },
+        { targetName: { $regex: q, $options: 'i' } },
+        { qrData: { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    const qrCodes = await QRCode.find(filter).sort({ createdAt: -1 });
+    res.status(200).json({ success: true, count: qrCodes.length, qrCodes });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Generate / Create QR Code
+ * @route   POST /api/products/qr-codes/generate
+ * @access  Private (Admin, Owner)
+ */
+const createQRCode = async (req, res) => {
+  try {
+    const { title, qrType, targetId, targetName, qrData, description } = req.body;
+    let shopId = req.user?.shopId || req.body.shopId;
+    if (!shopId) {
+      const fallbackShop = await Shop.findOne({ isActive: true });
+      shopId = fallbackShop?._id;
+    }
+
+    if (!title || !qrData) {
+      return res.status(400).json({ success: false, message: 'Title and QR Data are required' });
+    }
+
+    const qr = await QRCode.create({
+      title: title.trim(),
+      qrType: (qrType || 'PRODUCT').toUpperCase(),
+      targetId: targetId || '',
+      targetName: targetName || '',
+      qrData: qrData.trim(),
+      description: description || '',
+      shopId,
+      status: 'ACTIVE'
+    });
+
+    res.status(201).json({ success: true, message: 'QR Code generated successfully', qrCode: qr });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Update QR Code
+ * @route   PUT /api/products/qr-codes/:id
+ * @access  Private (Admin, Owner)
+ */
+const updateQRCode = async (req, res) => {
+  try {
+    const { title, qrData, description, status } = req.body;
+    const qr = await QRCode.findById(req.params.id);
+
+    if (!qr) {
+      return res.status(404).json({ success: false, message: 'QR Code not found' });
+    }
+
+    if (title) qr.title = title.trim();
+    if (qrData) qr.qrData = qrData.trim();
+    if (description !== undefined) qr.description = description;
+    if (status) qr.status = status.toUpperCase();
+
+    await qr.save();
+
+    res.status(200).json({ success: true, message: 'QR Code updated successfully', qrCode: qr });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete QR Code
+ * @route   DELETE /api/products/qr-codes/:id
+ * @access  Private (Admin, Owner)
+ */
+const deleteQRCode = async (req, res) => {
+  try {
+    const qr = await QRCode.findByIdAndDelete(req.params.id);
+    if (!qr) {
+      return res.status(404).json({ success: false, message: 'QR Code not found' });
+    }
+    res.status(200).json({ success: true, message: 'QR Code deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Lookup by QR Code (Used by Staff POS QR Scanner)
+ * @route   GET /api/products/by-qr/:qrData
+ * @access  Private (Staff, Admin, Owner)
+ */
+const lookupByQR = async (req, res) => {
+  try {
+    const rawData = req.params.qrData || req.query.qrData || '';
+    const cleanData = decodeURIComponent(rawData).trim();
+
+    // Check if QR matches a Product by SKU, barcode, or explicit qrCodeData
+    const product = await Product.findOne({
+      $or: [
+        { qrCodeData: cleanData },
+        { sku: cleanData.replace(/^smp:product:/i, '').trim().toUpperCase() },
+        { barcode: cleanData },
+        { _id: cleanData.match(/^[0-9a-fA-F]{24}$/) ? cleanData : null }
+      ].filter(Boolean),
+      isActive: true
+    }).populate('category', 'name');
+
+    if (product) {
+      return res.status(200).json({
+        success: true,
+        type: 'PRODUCT',
+        product: product,
+        item: {
+          _id: product._id,
+          name: product.name,
+          sku: product.sku,
+          barcode: product.barcode,
+          sellingPrice: product.sellingPrice,
+          costPrice: product.costPrice,
+          gstPercent: product.gstPercent || 5,
+          availableQuantity: product.availableQuantity,
+          sizes: product.sizes,
+          colours: product.colours,
+          images: product.images,
+          categoryName: product.category?.name || 'General'
+        }
+      });
+    }
+
+    // Check if QR matches an Invoice
+    const Invoice = require('../models/Invoice');
+    const invoice = await Invoice.findOne({
+      invoiceNumber: cleanData.replace(/^smp:inv:/i, '').trim()
+    });
+
+    if (invoice) {
+      return res.status(200).json({
+        success: true,
+        type: 'INVOICE',
+        item: invoice
+      });
+    }
+
+    res.status(404).json({
+      success: false,
+      message: `No product or invoice found matching scanned QR data: ${cleanData}`
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -596,6 +1121,17 @@ module.exports = {
   deleteProduct,
   getCategories,
   createCategory,
+  updateCategory,
+  deleteCategory,
+  getBarcodesList,
+  assignOrUpdateBarcode,
+  deleteBarcode,
+  lookupProductByBarcode,
+  getQRCodesList,
+  createQRCode,
+  updateQRCode,
+  deleteQRCode,
+  lookupByQR,
   importProductsExcel,
   exportProductsExcel,
   getShopDeliveryRules,

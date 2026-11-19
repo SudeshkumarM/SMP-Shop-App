@@ -101,13 +101,13 @@ const Products = () => {
       {/* Breadcrumb & Header */}
       <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
         <div>
-          <h2 className="fw-bold brand-font mb-0">SMP Product Catalog</h2>
-          <small className="text-muted">Showing {products.length} of {total} products</small>
+          <h2 className="fw-bold brand-font text-white mb-0">SMP Product Catalog</h2>
+          <small style={{ color: '#94A3B8' }}>Showing {products.length} of {total} products</small>
         </div>
 
         {/* Sort selector */}
         <div className="d-flex align-items-center gap-2">
-          <label className="text-nowrap small fw-semibold text-secondary">Sort by:</label>
+          <label className="text-nowrap small fw-semibold text-white">Sort by:</label>
           <select
             className="form-select form-select-sm"
             value={sort}
@@ -126,9 +126,9 @@ const Products = () => {
       <div className="row g-4">
         {/* Filters Sidebar */}
         <div className="col-lg-3 col-md-4">
-          <div className="smp-card p-3 sticky-top" style={{ top: '80px', zIndex: 10 }}>
-            <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
-              <h5 className="fw-bold mb-0">Filters</h5>
+          <div className="smp-card p-3 sticky-top" style={{ top: '80px', zIndex: 10, backgroundColor: '#1E293B', border: '1px solid #334155' }}>
+            <div className="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2" style={{ borderColor: '#334155' }}>
+              <h5 className="fw-bold text-white mb-0">Filters</h5>
               <button onClick={handleClearFilters} className="btn btn-link btn-sm text-danger p-0 text-decoration-none">
                 Clear All
               </button>
@@ -137,7 +137,7 @@ const Products = () => {
             <form onSubmit={handleApplyFilter}>
               {/* Keyword Search */}
               <div className="mb-3">
-                <label className="form-label small fw-bold text-uppercase text-secondary">Search Item</label>
+                <label className="form-label small fw-bold text-uppercase text-white">Search Item</label>
                 <div className="input-group input-group-sm">
                   <input
                     type="text"
@@ -154,7 +154,7 @@ const Products = () => {
 
               {/* Category */}
               <div className="mb-3">
-                <label className="form-label small fw-bold text-uppercase text-secondary">Category</label>
+                <label className="form-label small fw-bold text-uppercase text-white">Category</label>
                 <select
                   className="form-select form-select-sm"
                   value={category}
@@ -171,14 +171,14 @@ const Products = () => {
 
               {/* Sizes */}
               <div className="mb-3">
-                <label className="form-label small fw-bold text-uppercase text-secondary">Size</label>
+                <label className="form-label small fw-bold text-uppercase text-white">Size</label>
                 <div className="d-flex flex-wrap gap-1">
                   {['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Free Size'].map((s) => (
                     <button
                       type="button"
                       key={s}
                       onClick={() => setSize(size === s ? '' : s)}
-                      className={`btn btn-sm ${size === s ? 'btn-primary' : 'btn-outline-secondary'} py-0 px-2`}
+                      className={`btn btn-sm ${size === s ? 'btn-primary' : 'btn-outline-secondary text-white'} py-0 px-2`}
                       style={{ fontSize: '0.78rem' }}
                     >
                       {s}
@@ -189,7 +189,7 @@ const Products = () => {
 
               {/* Price Range */}
               <div className="mb-3">
-                <label className="form-label small fw-bold text-uppercase text-secondary">Price Range (₹)</label>
+                <label className="form-label small fw-bold text-uppercase text-white">Price Range (₹)</label>
                 <div className="d-flex gap-2">
                   <input
                     type="number"
@@ -218,12 +218,12 @@ const Products = () => {
                   checked={inStock}
                   onChange={(e) => setInStock(e.target.checked)}
                 />
-                <label className="form-check-label small" htmlFor="inStockCheck">
+                <label className="form-check-label small text-white" htmlFor="inStockCheck">
                   In Stock Items Only
                 </label>
               </div>
 
-              <button type="submit" className="btn btn-primary btn-sm w-100 rounded-pill fw-semibold">
+              <button type="submit" className="btn btn-primary btn-sm w-100 rounded-pill fw-semibold shadow-sm">
                 Apply Filters
               </button>
             </form>
@@ -238,7 +238,7 @@ const Products = () => {
               <p className="mt-2 text-muted small">Loading apparel collection...</p>
             </div>
           ) : products.length === 0 ? (
-            <div className="smp-card p-5 text-center" style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}>
+            <div className="smp-card p-5 text-center" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
               <i className="bi bi-box-seam display-4 mb-3" style={{ color: '#3b82f6' }}></i>
               <h4 className="fw-bold text-white mb-2">No Products Currently in Catalog</h4>
               <p className="small mb-4 mx-auto" style={{ color: '#B8C5D6', maxWidth: '420px' }}>

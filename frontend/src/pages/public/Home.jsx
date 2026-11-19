@@ -65,8 +65,8 @@ const Home = () => {
       <section
         className="py-5"
         style={{
-          background: 'linear-gradient(135deg, #071426 0%, #10243D 55%, #152A45 100%)',
-          borderBottom: '1px solid #293D58'
+          background: 'linear-gradient(135deg, #172554 0%, #1E293B 60%, #0F172A 100%)',
+          borderBottom: '1px solid #334155'
         }}
       >
         <div className="container py-4">
@@ -119,8 +119,8 @@ const Home = () => {
               <div
                 className="p-4 rounded-4 shadow-lg text-start position-relative overflow-hidden"
                 style={{
-                  backgroundColor: '#152A45',
-                  border: '1px solid #293D58'
+                  backgroundColor: '#1E293B',
+                  border: '1px solid #334155'
                 }}
               >
                 <div className="d-flex align-items-center gap-2 mb-3">
@@ -129,7 +129,7 @@ const Home = () => {
                     style={{
                       width: '42px',
                       height: '42px',
-                      background: 'linear-gradient(135deg, #2563EB 0%, #B91C1C 100%)',
+                      background: 'linear-gradient(135deg, #2563EB 0%, #7C3AED 100%)',
                       fontSize: '1.2rem'
                     }}
                   >
@@ -174,69 +174,69 @@ const Home = () => {
         <div className="row g-3 text-center">
           <div className="col-md-3 col-6">
             <div
-              className="p-3 smp-card d-flex align-items-center gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
+              className="p-3 smp-card h-100 d-flex align-items-center gap-3 border-start border-4 border-primary shadow-sm"
+              style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}
             >
               <div
                 className="p-3 rounded-3 fs-3 d-flex align-items-center justify-content-center"
-                style={{ backgroundColor: '#10243D', color: '#2563EB' }}
+                style={{ backgroundColor: 'rgba(37, 99, 235, 0.2)', color: '#38BDF8' }}
               >
                 <i className="bi bi-shield-check"></i>
               </div>
               <div className="text-start">
                 <div className="fw-bold small text-white">Guaranteed Quality</div>
-                <small style={{ color: '#B8C5D6' }}>Premium fabrics & finishing</small>
+                <small className="text-muted">Premium fabrics & finishing</small>
               </div>
             </div>
           </div>
           <div className="col-md-3 col-6">
             <div
-              className="p-3 smp-card d-flex align-items-center gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
+              className="p-3 smp-card h-100 d-flex align-items-center gap-3 border-start border-4 border-success shadow-sm"
+              style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}
             >
               <div
                 className="p-3 rounded-3 fs-3 d-flex align-items-center justify-content-center"
-                style={{ backgroundColor: '#10243D', color: '#10B981' }}
+                style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}
               >
                 <i className="bi bi-truck"></i>
               </div>
               <div className="text-start">
                 <div className="fw-bold small text-white">Express Delivery</div>
-                <small style={{ color: '#B8C5D6' }}>Fast dispatch & order tracking</small>
+                <small className="text-muted">Fast dispatch & order tracking</small>
               </div>
             </div>
           </div>
           <div className="col-md-3 col-6">
             <div
-              className="p-3 smp-card d-flex align-items-center gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
+              className="p-3 smp-card h-100 d-flex align-items-center gap-3 border-start border-4 border-warning shadow-sm"
+              style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}
             >
               <div
                 className="p-3 rounded-3 fs-3 d-flex align-items-center justify-content-center"
-                style={{ backgroundColor: '#10243D', color: '#F59E0B' }}
+                style={{ backgroundColor: 'rgba(249, 115, 22, 0.2)', color: '#F97316' }}
               >
                 <i className="bi bi-receipt"></i>
               </div>
               <div className="text-start">
                 <div className="fw-bold small text-white">GST Invoicing</div>
-                <small style={{ color: '#B8C5D6' }}>Compliant tax calculations</small>
+                <small className="text-muted">Compliant tax calculations</small>
               </div>
             </div>
           </div>
           <div className="col-md-3 col-6">
             <div
-              className="p-3 smp-card d-flex align-items-center gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
+              className="p-3 smp-card h-100 d-flex align-items-center gap-3 border-start border-4 border-danger shadow-sm"
+              style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}
             >
               <div
                 className="p-3 rounded-3 fs-3 d-flex align-items-center justify-content-center"
-                style={{ backgroundColor: '#10243D', color: '#EF4444' }}
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
               >
                 <i className="bi bi-arrow-repeat"></i>
               </div>
               <div className="text-start">
                 <div className="fw-bold small text-white">Easy Returns</div>
-                <small style={{ color: '#B8C5D6' }}>Hassle-free exchange policy</small>
+                <small className="text-muted">Hassle-free exchange policy</small>
               </div>
             </div>
           </div>
@@ -248,13 +248,12 @@ const Home = () => {
         <div className="d-flex align-items-center justify-content-between mb-4">
           <div>
             <h3 className="fw-bold brand-font text-white mb-1">Featured Collections</h3>
-            <p className="small mb-0" style={{ color: '#B8C5D6' }}>Explore the latest arrivals and apparel</p>
+            <p className="small mb-0 text-muted">Explore the latest arrivals and apparel</p>
           </div>
           {products.length > 0 && (
             <Link
               to="/products"
-              className="btn btn-outline-primary btn-sm rounded-pill px-3 py-1 fw-semibold"
-              style={{ color: '#DCEBFF', borderColor: '#3b82f6', backgroundColor: '#10243D' }}
+              className="btn btn-outline-primary btn-sm rounded-pill px-3 py-1 fw-semibold text-white"
             >
               View All ({products.length}) <i className="bi bi-arrow-right ms-1"></i>
             </Link>
@@ -264,7 +263,7 @@ const Home = () => {
         {loading ? (
           <div className="text-center py-5">
             <div className="spinner-border text-primary" role="status"></div>
-            <p className="mt-2 small" style={{ color: '#B8C5D6' }}>Loading SMP collections...</p>
+            <p className="mt-2 small text-muted">Loading SMP collections...</p>
           </div>
         ) : products.length > 0 ? (
           <div className="row g-4">
@@ -276,29 +275,22 @@ const Home = () => {
           </div>
         ) : (
           <div
-            className="p-5 text-center rounded-4 shadow-sm"
-            style={{
-              backgroundColor: '#152A45',
-              border: '1px solid #293D58'
-            }}
+            className="p-5 text-center rounded-4 shadow-sm border"
+            style={{ backgroundColor: '#1E293B', borderColor: '#334155' }}
           >
             <div
-              className="d-inline-flex align-items-center justify-content-center rounded-circle p-3 mb-3"
-              style={{ backgroundColor: '#10243D', color: '#60a5fa', width: '70px', height: '70px' }}
+              className="d-inline-flex align-items-center justify-content-center rounded-circle p-3 mb-3 text-info"
+              style={{ width: '70px', height: '70px', backgroundColor: '#0F172A' }}
             >
               <i className="bi bi-bag-check fs-2"></i>
             </div>
             <h4 className="fw-bold text-white mb-2">New Collections Arriving Soon</h4>
-            <p className="small mb-4 mx-auto" style={{ color: '#B8C5D6', maxWidth: '480px' }}>
+            <p className="small mb-4 mx-auto text-muted" style={{ maxWidth: '480px' }}>
               Our apparel catalog is currently being curated by store managers. New collections, styles, and sizes will appear here shortly.
             </p>
             <Link
               to="/products"
-              className="btn btn-primary rounded-pill px-4 py-2 fw-semibold"
-              style={{
-                background: 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
-                border: '1px solid #60a5fa'
-              }}
+              className="btn btn-primary rounded-pill px-4 py-2 fw-semibold shadow-sm"
             >
               Browse Catalog
             </Link>
@@ -312,26 +304,25 @@ const Home = () => {
           <div
             className="p-4 p-md-5 rounded-4 shadow text-white position-relative overflow-hidden"
             style={{
-              background: 'linear-gradient(135deg, #10243D 0%, #152A45 100%)',
-              border: '1px solid #293D58'
+              background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 50%, #2563EB 100%)',
+              border: '1px solid #3B82F6'
             }}
           >
             <div className="row align-items-center">
               <div className="col-lg-8">
                 <span
-                  className="badge px-3 py-1 rounded-pill fw-bold mb-2"
-                  style={{ backgroundColor: '#B91C1C', color: '#FFFFFF', border: '1px solid #ef4444' }}
+                  className="badge px-3 py-1 rounded-pill fw-bold mb-2 shadow-xs"
+                  style={{ backgroundColor: '#F97316', color: '#0F172A' }}
                 >
-                  ACTIVE PROMOTION
+                  ★ SPECIAL OFFER
                 </span>
                 <h2 className="display-6 fw-bold brand-font mb-2 text-white">
                   {activeCoupons[0].title || `Special ${activeCoupons[0].discountPercent}% Discount`}
                 </h2>
-                <p className="lead mb-0 fs-6" style={{ color: '#DCEBFF' }}>
+                <p className="lead mb-0 fs-6 text-white-50">
                   Use coupon code{' '}
                   <strong
-                    className="px-2 py-1 rounded font-monospace fw-bold"
-                    style={{ backgroundColor: '#071426', color: '#60a5fa', border: '1px solid #293D58' }}
+                    className="px-2 py-1 rounded font-monospace fw-bold bg-white text-dark shadow-xs"
                   >
                     {activeCoupons[0].code}
                   </strong>{' '}
@@ -341,12 +332,7 @@ const Home = () => {
               <div className="col-lg-4 text-lg-end mt-3 mt-lg-0">
                 <Link
                   to="/products"
-                  className="btn btn-primary btn-lg fw-bold rounded-pill px-4 shadow"
-                  style={{
-                    background: 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
-                    border: '1px solid #60a5fa',
-                    color: '#FFFFFF'
-                  }}
+                  className="btn btn-warning text-dark btn-lg fw-bold rounded-pill px-4 shadow"
                 >
                   Shop with Offer
                 </Link>

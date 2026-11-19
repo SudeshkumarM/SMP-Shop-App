@@ -105,18 +105,18 @@ const CustomerProfile = () => {
 
   return (
     <div className="fade-in">
-      <h3 className="fw-bold brand-font mb-4">My Account & Profile Settings</h3>
+      <h3 className="fw-bold brand-font text-white mb-4">My Account & Profile Settings</h3>
 
       <div className="row g-4">
         {/* Personal Details */}
         <div className="col-lg-6">
-          <div className="smp-card p-4 bg-white mb-4">
-            <h5 className="fw-bold mb-3 d-flex align-items-center gap-2">
+          <div className="smp-card p-4 mb-4" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
+            <h5 className="fw-bold text-white mb-3 d-flex align-items-center gap-2">
               <i className="bi bi-person-lines-fill text-primary"></i> Personal Details
             </h5>
-            <form onSubmit={handleUpdateProfile}>
+            <form onSubmit={handleUpdateProfile} autoComplete="off">
               <div className="mb-3">
-                <label className="form-label small fw-semibold">Full Name</label>
+                <label className="form-label small fw-semibold text-white">Full Name</label>
                 <input
                   type="text"
                   required
@@ -127,17 +127,18 @@ const CustomerProfile = () => {
               </div>
 
               <div className="mb-3">
-                <label className="form-label small fw-semibold">Email Address (Immutable)</label>
+                <label className="form-label small fw-semibold text-white">Email Address (Immutable)</label>
                 <input
                   type="email"
                   disabled
-                  className="form-control bg-light"
+                  className="form-control"
+                  style={{ opacity: 0.75 }}
                   value={user?.email || ''}
                 />
               </div>
 
               <div className="mb-3">
-                <label className="form-label small fw-semibold">Phone Number</label>
+                <label className="form-label small fw-semibold text-white">Phone Number</label>
                 <input
                   type="tel"
                   className="form-control"
@@ -149,7 +150,7 @@ const CustomerProfile = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn btn-primary rounded-pill btn-sm px-4 fw-semibold"
+                className="btn btn-primary rounded-pill btn-sm px-4 fw-semibold shadow-sm"
               >
                 Save Profile
               </button>
@@ -157,42 +158,45 @@ const CustomerProfile = () => {
           </div>
 
           {/* Change Password */}
-          <div className="smp-card p-4 bg-white">
-            <h5 className="fw-bold mb-3 d-flex align-items-center gap-2">
+          <div className="smp-card p-4" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
+            <h5 className="fw-bold text-white mb-3 d-flex align-items-center gap-2">
               <i className="bi bi-shield-lock text-warning"></i> Change Password
             </h5>
-            <form onSubmit={handleChangePassword}>
+            <form onSubmit={handleChangePassword} autoComplete="off">
               <div className="mb-3">
-                <label className="form-label small fw-semibold">Current Password</label>
+                <label className="form-label small fw-semibold text-white">Current Password</label>
                 <input
                   type="password"
                   required
+                  autoComplete="current-password"
                   className="form-control"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                 />
               </div>
               <div className="mb-3">
-                <label className="form-label small fw-semibold">New Password</label>
+                <label className="form-label small fw-semibold text-white">New Password</label>
                 <input
                   type="password"
                   required
+                  autoComplete="new-password"
                   className="form-control"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
               </div>
               <div className="mb-3">
-                <label className="form-label small fw-semibold">Confirm New Password</label>
+                <label className="form-label small fw-semibold text-white">Confirm New Password</label>
                 <input
                   type="password"
                   required
+                  autoComplete="new-password"
                   className="form-control"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
               </div>
-              <button type="submit" className="btn btn-outline-warning text-dark rounded-pill btn-sm px-4 fw-semibold">
+              <button type="submit" className="btn btn-warning text-dark fw-bold rounded-pill btn-sm px-4 shadow-sm">
                 Update Password
               </button>
             </form>
@@ -201,15 +205,15 @@ const CustomerProfile = () => {
 
         {/* Addresses Management */}
         <div className="col-lg-6">
-          <div className="smp-card p-4 bg-white">
+          <div className="smp-card p-4" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
             <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="fw-bold mb-0 d-flex align-items-center gap-2">
+              <h5 className="fw-bold text-white mb-0 d-flex align-items-center gap-2">
                 <i className="bi bi-geo-alt-fill text-danger"></i> Delivery Addresses
               </h5>
               <button
                 type="button"
                 onClick={() => setShowAddAddr(!showAddAddr)}
-                className="btn btn-outline-primary btn-sm rounded-pill px-3"
+                className="btn btn-primary btn-sm rounded-pill px-3 shadow-sm"
               >
                 <i className="bi bi-plus-lg me-1"></i> Add New
               </button>
@@ -217,11 +221,11 @@ const CustomerProfile = () => {
 
             {/* Add Address Form Toggle */}
             {showAddAddr && (
-              <form onSubmit={handleAddAddress} className="p-3 bg-light rounded-3 mb-4 border">
-                <h6 className="fw-bold mb-3">Add New Address</h6>
+              <form onSubmit={handleAddAddress} className="p-3 rounded-3 mb-4" style={{ backgroundColor: '#0F172A', border: '1px solid #334155' }}>
+                <h6 className="fw-bold text-white mb-3">Add New Address</h6>
                 <div className="row g-2 mb-2">
                   <div className="col-6">
-                    <label className="form-label small">Address Title</label>
+                    <label className="form-label small text-white">Address Title</label>
                     <input
                       type="text"
                       placeholder="Home / Office"
@@ -231,7 +235,7 @@ const CustomerProfile = () => {
                     />
                   </div>
                   <div className="col-6">
-                    <label className="form-label small">Pincode *</label>
+                    <label className="form-label small text-white">Pincode *</label>
                     <input
                       type="text"
                       required
@@ -242,7 +246,7 @@ const CustomerProfile = () => {
                     />
                   </div>
                   <div className="col-12">
-                    <label className="form-label small">Street Address *</label>
+                    <label className="form-label small text-white">Street Address *</label>
                     <input
                       type="text"
                       required
@@ -253,7 +257,7 @@ const CustomerProfile = () => {
                     />
                   </div>
                   <div className="col-6">
-                    <label className="form-label small">City *</label>
+                    <label className="form-label small text-white">City *</label>
                     <input
                       type="text"
                       required
@@ -263,7 +267,7 @@ const CustomerProfile = () => {
                     />
                   </div>
                   <div className="col-6">
-                    <label className="form-label small">State *</label>
+                    <label className="form-label small text-white">State *</label>
                     <input
                       type="text"
                       required
@@ -275,7 +279,7 @@ const CustomerProfile = () => {
                 </div>
 
                 <div className="d-flex gap-2 justify-content-end mt-3">
-                  <button type="button" onClick={() => setShowAddAddr(false)} className="btn btn-sm btn-outline-secondary">
+                  <button type="button" onClick={() => setShowAddAddr(false)} className="btn btn-sm btn-secondary">
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-sm btn-primary">
@@ -287,18 +291,18 @@ const CustomerProfile = () => {
 
             {/* Saved Addresses list */}
             {addresses.length === 0 ? (
-              <p className="text-muted small">No delivery addresses saved yet.</p>
+              <p className="small mb-0" style={{ color: '#94A3B8' }}>No delivery addresses saved yet.</p>
             ) : (
               <div className="d-flex flex-column gap-3">
                 {addresses.map((addr) => (
-                  <div key={addr._id} className="p-3 border rounded-3 d-flex justify-content-between align-items-start">
+                  <div key={addr._id} className="p-3 rounded-3 d-flex justify-content-between align-items-start" style={{ backgroundColor: '#0F172A', border: '1px solid #334155' }}>
                     <div>
                       <div className="d-flex align-items-center gap-2 mb-1">
-                        <span className="badge bg-secondary text-uppercase">{addr.title}</span>
+                        <span className="badge text-uppercase" style={{ backgroundColor: '#1E293B', color: '#38BDF8', border: '1px solid #334155' }}>{addr.title}</span>
                         {addr.isDefault && <span className="badge bg-primary">Default</span>}
                       </div>
-                      <div className="fw-semibold small">{addr.street}</div>
-                      <div className="text-muted small">{addr.city}, {addr.state} - {addr.pincode}</div>
+                      <div className="fw-semibold small text-white">{addr.street}</div>
+                      <div className="small" style={{ color: '#94A3B8' }}>{addr.city}, {addr.state} - {addr.pincode}</div>
                     </div>
                     <button
                       onClick={() => handleDeleteAddress(addr._id)}

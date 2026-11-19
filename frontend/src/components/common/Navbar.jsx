@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 
@@ -27,8 +27,9 @@ const Navbar = () => {
     <nav
       className="navbar navbar-expand-lg sticky-top shadow-sm py-2"
       style={{
-        backgroundColor: 'var(--smp-bg-primary)',
-        borderBottom: '1px solid var(--smp-border)'
+        backgroundColor: 'var(--smp-deep-navy)',
+        borderBottom: '1px solid #1E3A70',
+        zIndex: 1020
       }}
     >
       <div className="container">
@@ -41,7 +42,7 @@ const Navbar = () => {
               height: '40px',
               fontSize: '1.25rem',
               fontWeight: 800,
-              background: 'linear-gradient(135deg, #2563EB 0%, #B91C1C 100%)'
+              background: 'linear-gradient(135deg, var(--smp-royal-blue), var(--smp-royal-blue-hover))'
             }}
           >
             S
@@ -50,22 +51,22 @@ const Navbar = () => {
             <div className="brand-font fs-4 text-white lh-1 tracking-tight" style={{ letterSpacing: '-0.5px' }}>
               SMP
             </div>
-            <small className="fw-semibold" style={{ fontSize: '0.68rem', letterSpacing: '0.8px', color: 'var(--smp-text-secondary)' }}>
+            <small className="fw-semibold" style={{ fontSize: '0.68rem', letterSpacing: '0.8px', color: '#38BDF8' }}>
               OFFICIAL STORE
             </small>
           </div>
         </Link>
 
         {/* Search Bar */}
-        <form onSubmit={handleSearch} className="d-flex flex-grow-1 mx-lg-4 my-2 my-lg-0" style={{ maxWidth: '480px' }}>
-          <div className="input-group">
+        <form onSubmit={handleSearch} className="d-flex flex-grow-1 mx-lg-4 my-2 my-lg-0" style={{ maxWidth: '440px' }}>
+          <div className="input-group input-group-sm">
             <input
               type="text"
               className="form-control"
-              placeholder="Search products, shirts, apparel..."
+              placeholder="Search products, apparel..."
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              style={{ fontSize: '0.92rem', padding: '10px 14px' }}
+              style={{ fontSize: '0.9rem', padding: '8px 12px', backgroundColor: 'var(--smp-bg-surface)', borderColor: 'var(--smp-border)', color: 'var(--smp-white)' }}
             />
             <button className="btn btn-primary px-3" type="submit" aria-label="Search">
               <i className="bi bi-search"></i>
@@ -75,34 +76,39 @@ const Navbar = () => {
 
         {/* Mobile Toggle */}
         <button
-          className="navbar-toggler border-0 text-white"
+          className="navbar-toggler border-0"
           type="button"
           data-bs-toggle="collapse"
           data-bs-target="#navbarContent"
-          style={{ borderColor: 'var(--smp-border)' }}
         >
-          <i className="bi bi-list fs-2 text-white"></i>
+          <i className="bi bi-list fs-3 text-white"></i>
         </button>
 
         {/* Navigation Items */}
         <div className="collapse navbar-collapse" id="navbarContent">
           <ul className="navbar-nav ms-auto align-items-lg-center gap-1 gap-lg-3">
             <li className="nav-item">
-              <Link to="/products" className="nav-link fw-medium text-white d-flex align-items-center">
-                <i className="bi bi-grid me-1" style={{ color: 'var(--smp-accent-blue)' }}></i> Catalog
-              </Link>
+              <NavLink to="/" className={({ isActive }) => `nav-link fw-medium px-2 ${isActive ? 'text-primary fw-bold' : 'text-white'}`}>
+                Home
+              </NavLink>
             </li>
 
             <li className="nav-item">
-              <Link to="/about" className="nav-link fw-medium" style={{ color: 'var(--smp-text-secondary)' }}>
+              <NavLink to="/products" className={({ isActive }) => `nav-link fw-medium px-2 ${isActive ? 'text-primary fw-bold' : 'text-white'}`}>
+                Products
+              </NavLink>
+            </li>
+
+            <li className="nav-item">
+              <NavLink to="/about" className={({ isActive }) => `nav-link fw-medium px-2 ${isActive ? 'text-primary fw-bold' : 'text-white'}`}>
                 About
-              </Link>
+              </NavLink>
             </li>
 
             <li className="nav-item">
-              <Link to="/contact" className="nav-link fw-medium" style={{ color: 'var(--smp-text-secondary)' }}>
+              <NavLink to="/contact" className={({ isActive }) => `nav-link fw-medium px-2 ${isActive ? 'text-primary fw-bold' : 'text-white'}`}>
                 Contact
-              </Link>
+              </NavLink>
             </li>
 
             {/* Wishlist Link (Customer) */}
@@ -118,15 +124,11 @@ const Navbar = () => {
             <li className="nav-item">
               <Link to="/cart" className="nav-link text-white position-relative d-flex align-items-center gap-1 p-2">
                 <div className="position-relative">
-                  <i className="bi bi-cart3 fs-5" style={{ color: 'var(--smp-accent-blue)' }}></i>
+                  <i className="bi bi-cart3 fs-5 text-primary"></i>
                   {itemCount > 0 && (
                     <span
-                      className="position-absolute top-0 start-100 translate-middle badge rounded-pill"
-                      style={{
-                        fontSize: '0.7rem',
-                        backgroundColor: 'var(--smp-accent-red)',
-                        color: '#FFFFFF'
-                      }}
+                      className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger text-white"
+                      style={{ fontSize: '0.68rem' }}
                     >
                       {itemCount}
                     </span>
@@ -140,19 +142,19 @@ const Navbar = () => {
             {isAuthenticated ? (
               <li className="nav-item dropdown">
                 <button
-                  className="btn btn-primary dropdown-toggle rounded-pill px-3 py-1 d-flex align-items-center gap-2"
+                  className="btn btn-outline-primary btn-sm dropdown-toggle rounded-pill px-3 py-1 d-flex align-items-center gap-2"
                   data-bs-toggle="dropdown"
                   aria-expanded="false"
                 >
-                  <i className="bi bi-person-circle"></i>
-                  <span className="fw-medium text-truncate" style={{ maxWidth: '120px' }}>
+                  <i className="bi bi-person-circle text-white"></i>
+                  <span className="fw-medium text-white text-truncate" style={{ maxWidth: '120px' }}>
                     {user.name ? user.name.split(' ')[0] : 'Account'}
                   </span>
                 </button>
-                <ul className="dropdown-menu dropdown-menu-end shadow mt-2 p-2" style={{ minWidth: '220px' }}>
-                  <li className="px-3 py-2 border-bottom mb-1">
+                <ul className="dropdown-menu dropdown-menu-end shadow mt-2 p-2" style={{ minWidth: '220px', backgroundColor: 'var(--smp-bg-surface)', borderColor: 'var(--smp-border)' }}>
+                  <li className="px-3 py-2 border-bottom mb-1" style={{ borderColor: '#334155' }}>
                     <p className="mb-0 fw-bold text-white">Welcome, {user.name}!</p>
-                    <small style={{ color: 'var(--smp-text-secondary)' }} className="text-capitalize">{user.role} Account</small>
+                    <small className="text-muted text-capitalize">{user.role} Account</small>
                   </li>
 
                   {user.role === 'customer' && (
@@ -185,7 +187,7 @@ const Navbar = () => {
 
                   <li><hr className="dropdown-divider my-1" /></li>
                   <li>
-                    <button onClick={handleLogout} className="dropdown-item py-2" style={{ color: 'var(--smp-highlight-red)' }}>
+                    <button onClick={handleLogout} className="dropdown-item py-2 text-danger">
                       <i className="bi bi-box-arrow-right me-2"></i>Logout
                     </button>
                   </li>

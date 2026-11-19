@@ -6,7 +6,7 @@ import Sidebar from '../components/common/Sidebar';
 
 const CustomerLayout = () => {
   return (
-    <div className="d-flex flex-column min-vh-100 bg-light">
+    <div className="d-flex flex-column min-vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
       <Navbar />
       <div className="container py-4 flex-grow-1">
         <div className="row g-4">

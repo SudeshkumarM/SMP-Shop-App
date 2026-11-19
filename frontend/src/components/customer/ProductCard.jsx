@@ -42,8 +42,8 @@ const ProductCard = ({ product, onWishlistToggle }) => {
     <div
       className="card h-100 smp-card overflow-hidden position-relative"
       style={{
-        backgroundColor: 'var(--smp-bg-card)',
-        border: '1px solid var(--smp-border)'
+        backgroundColor: '#1E293B',
+        border: '1px solid #334155'
       }}
     >
       {/* Wishlist button */}
@@ -54,9 +54,9 @@ const ProductCard = ({ product, onWishlistToggle }) => {
           width: '32px',
           height: '32px',
           zIndex: 2,
-          backgroundColor: 'var(--smp-bg-secondary)',
-          border: '1px solid var(--smp-border)',
-          color: 'var(--smp-highlight-red)'
+          backgroundColor: '#1E293B',
+          border: '1px solid #334155',
+          color: '#EF4444'
         }}
         title="Add to wishlist"
       >
@@ -70,7 +70,7 @@ const ProductCard = ({ product, onWishlistToggle }) => {
           style={{
             zIndex: 2,
             fontSize: '0.7rem',
-            backgroundColor: 'var(--smp-accent-blue)',
+            backgroundColor: '#2563EB',
             color: '#FFFFFF'
           }}
         >
@@ -82,7 +82,7 @@ const ProductCard = ({ product, onWishlistToggle }) => {
       <Link to={`/product/${product._id}`} className="text-decoration-none">
         <div
           className="position-relative overflow-hidden d-flex align-items-center justify-content-center"
-          style={{ height: '240px', backgroundColor: 'var(--smp-bg-secondary)' }}
+          style={{ height: '240px', backgroundColor: '#0F172A' }}
         >
           <img
             src={mainImage}
@@ -101,7 +101,7 @@ const ProductCard = ({ product, onWishlistToggle }) => {
       <div className="card-body p-3 d-flex flex-column justify-content-between">
         <div>
           <div className="d-flex align-items-center justify-content-between mb-1">
-            <span className="text-uppercase fw-semibold" style={{ fontSize: '0.72rem', color: 'var(--smp-text-secondary)' }}>
+            <span className="text-uppercase fw-semibold" style={{ fontSize: '0.72rem', color: '#94A3B8' }}>
               {product.brand || 'SMP'}
             </span>
             <span className="smp-badge-rating">
@@ -119,13 +119,13 @@ const ProductCard = ({ product, onWishlistToggle }) => {
         <div>
           {/* Price breakdown */}
           <div className="d-flex align-items-baseline gap-2 mb-2">
-            <span className="fs-5 fw-bold text-white">₹{product.finalPrice || product.sellingPrice}</span>
+            <span className="fs-5 fw-bold text-info">₹{product.finalPrice || product.sellingPrice}</span>
             {product.originalPrice > product.sellingPrice && (
               <>
-                <span className="text-decoration-line-through small" style={{ color: 'var(--smp-text-secondary)' }}>
+                <span className="text-decoration-line-through small text-muted">
                   ₹{product.originalPrice}
                 </span>
-                <span className="discount-badge">
+                <span className="discount-badge text-danger fw-bold">
                   {product.discountPercent}% off
                 </span>
               </>

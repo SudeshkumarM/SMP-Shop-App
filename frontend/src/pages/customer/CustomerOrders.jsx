@@ -89,37 +89,37 @@ const CustomerOrders = () => {
 
   return (
     <div className="fade-in">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
-          <h3 className="fw-bold brand-font mb-0">My Orders & Tracking</h3>
-          <small className="text-muted">Track status, download GST tax invoices, and manage past purchases</small>
+          <h3 className="fw-bold brand-font text-white mb-0">My Orders & Tracking</h3>
+          <small style={{ color: '#94A3B8' }}>Track status, download GST tax invoices, and manage past purchases</small>
         </div>
-        <Link to="/products" className="btn btn-outline-primary btn-sm rounded-pill px-3">
+        <Link to="/products" className="btn btn-outline-primary text-white btn-sm rounded-pill px-3 shadow-sm">
           Explore Products
         </Link>
       </div>
 
       {orders.length === 0 ? (
-        <div className="smp-card p-5 text-center bg-white">
-          <i className="bi bi-box-seam text-muted display-4 mb-3"></i>
-          <h4>No Orders Found</h4>
-          <p className="text-muted small">You haven't ordered any items yet.</p>
-          <Link to="/products" className="btn btn-primary rounded-pill px-4">
+        <div className="smp-card p-5 text-center" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
+          <i className="bi bi-box-seam display-4 mb-3" style={{ color: '#38BDF8' }}></i>
+          <h4 className="text-white">No Orders Found</h4>
+          <p className="small" style={{ color: '#CBD5E1' }}>You haven't ordered any items yet.</p>
+          <Link to="/products" className="btn btn-primary rounded-pill px-4 shadow-sm">
             Start Shopping
           </Link>
         </div>
       ) : (
         <div className="d-flex flex-column gap-3">
           {orders.map((order) => (
-            <div key={order._id} className="smp-card p-4 bg-white">
+            <div key={order._id} className="smp-card p-4" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>
               {/* Order Card Header */}
-              <div className="d-flex flex-wrap justify-content-between align-items-center border-bottom pb-3 mb-3 gap-2">
+              <div className="d-flex flex-wrap justify-content-between align-items-center border-bottom pb-3 mb-3 gap-2" style={{ borderColor: '#334155' }}>
                 <div>
-                  <span className="small text-muted text-uppercase fw-bold">Order Placed:</span>{' '}
-                  <span className="small fw-semibold">{new Date(order.createdAt).toLocaleDateString()}</span>
+                  <span className="small text-uppercase fw-bold" style={{ color: '#94A3B8' }}>Order Placed:</span>{' '}
+                  <span className="small fw-semibold text-white">{new Date(order.createdAt).toLocaleDateString()}</span>
                   <span className="mx-2 text-secondary">|</span>
-                  <span className="small text-muted text-uppercase fw-bold">Order #:</span>{' '}
-                  <span className="small fw-bold text-primary">{order.orderNumber}</span>
+                  <span className="small text-uppercase fw-bold" style={{ color: '#94A3B8' }}>Order #:</span>{' '}
+                  <span className="small fw-bold text-info">{order.orderNumber}</span>
                 </div>
                 <div className="d-flex align-items-center gap-2">
                   <span className={`badge ${getStatusBadge(order.orderStatus)} px-3 py-1 rounded-pill`}>
@@ -127,7 +127,7 @@ const CustomerOrders = () => {
                   </span>
                   <button
                     onClick={() => handleViewInvoice(order)}
-                    className="btn btn-outline-secondary btn-sm py-1 px-3 rounded-pill"
+                    className="btn btn-outline-secondary text-white btn-sm py-1 px-3 rounded-pill"
                   >
                     <i className="bi bi-file-earmark-text me-1"></i> Tax Invoice
                   </button>
@@ -146,34 +146,34 @@ const CustomerOrders = () => {
                         style={{ width: '60px', height: '60px' }}
                       />
                       <div>
-                        <h6 className="fw-bold mb-0">{item.productName}</h6>
-                        <small className="text-muted">
-                          Size: <strong>{item.size || 'Std'}</strong> | Color: <strong>{item.colour || 'Def'}</strong> | Qty: <strong>{item.quantity}</strong>
+                        <h6 className="fw-bold text-white mb-0">{item.productName}</h6>
+                        <small style={{ color: '#94A3B8' }}>
+                          Size: <strong className="text-white">{item.size || 'Std'}</strong> | Color: <strong className="text-white">{item.colour || 'Def'}</strong> | Qty: <strong className="text-white">{item.quantity}</strong>
                         </small>
                       </div>
                     </div>
                     <div className="text-end">
-                      <div className="fw-bold">₹{item.totalAmount.toFixed(2)}</div>
-                      <small className="text-muted">(₹{item.unitPrice} each)</small>
+                      <div className="fw-bold text-white">₹{item.totalAmount.toFixed(2)}</div>
+                      <small style={{ color: '#94A3B8' }}>(₹{item.unitPrice} each)</small>
                     </div>
                   </div>
                 ))}
               </div>
 
               {/* Order Footer & Actions */}
-              <div className="d-flex flex-wrap justify-content-between align-items-center pt-3 border-top gap-2 small">
-                <div>
-                  <span className="text-muted">Payment:</span>{' '}
-                  <strong>{order.paymentMethod}</strong> ({order.paymentStatus})
+              <div className="d-flex flex-wrap justify-content-between align-items-center pt-3 border-top gap-2 small" style={{ borderColor: '#334155' }}>
+                <div style={{ color: '#94A3B8' }}>
+                  <span>Payment:</span>{' '}
+                  <strong className="text-white">{order.paymentMethod}</strong> ({order.paymentStatus})
                   {order.trackingNumber && (
-                    <span className="ms-3 badge bg-light text-dark border">
+                    <span className="ms-3 badge" style={{ backgroundColor: '#0F172A', color: '#38BDF8', border: '1px solid #334155' }}>
                       Tracking #: {order.trackingNumber}
                     </span>
                   )}
                 </div>
                 <div className="d-flex align-items-center gap-3">
-                  <div className="fs-6">
-                    Grand Total: <strong className="text-primary fs-5">₹{order.grandTotal.toFixed(2)}</strong>
+                  <div className="fs-6 text-white">
+                    Grand Total: <strong className="text-info fs-5">₹{order.grandTotal.toFixed(2)}</strong>
                   </div>
                   {['PLACED', 'CONFIRMED'].includes(order.orderStatus) && (
                     <button

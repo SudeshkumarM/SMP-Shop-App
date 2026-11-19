@@ -9,6 +9,7 @@ const User = require('../models/User');
 const WhatsAppService = require('../services/whatsappService');
 const { generateInvoiceBarcode } = require('../utils/generateBarcode');
 const { emitRealtimeUpdate } = require('../utils/realtime');
+const xlsx = require('xlsx');
 
 const generateInvoiceNumber = async (shopPrefix = 'SMP') => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -415,6 +416,270 @@ const getBillingHistory = async (req, res) => {
 };
 
 /**
+ * @desc    Get Complete Bill History (Admin & Owner) with full historical records & summary KPIs
+ * @route   GET /api/billing/complete-history
+ * @access  Private (Admin, Owner)
+ */
+const getCompleteBillHistory = async (req, res) => {
+  try {
+    const {
+      search,
+      staffId,
+      date,
+      startDate,
+      endDate,
+      month,
+      year,
+      paymentStatus,
+      billStatus,
+      page = 1,
+      limit = 20,
+      exportAll = 'false'
+    } = req.query;
+
+    const filter = {};
+
+    // Only scope by shopId if non-owner or specifically selected
+    if (req.user.shopId && req.user.role !== 'owner') {
+      filter.shopId = req.user.shopId;
+    }
+
+    // Bill Status filter (ACTIVE, CANCELLED, EDITED)
+    if (billStatus === 'CANCELLED') {
+      filter.isDeleted = true;
+    } else if (billStatus === 'EDITED') {
+      filter.isDeleted = false;
+      filter['editHistory.0'] = { $exists: true };
+    } else if (billStatus === 'ACTIVE') {
+      filter.isDeleted = false;
+    }
+
+    // Payment Status filter
+    if (paymentStatus && paymentStatus !== 'all') {
+      filter.paymentStatus = paymentStatus.toUpperCase();
+    }
+
+    // Staff filter
+    if (staffId && staffId !== 'all') {
+      filter.staffId = staffId;
+    }
+
+    // Search filter (Invoice number, Customer Name, Mobile Number)
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { invoiceNumber: { $regex: q, $options: 'i' } },
+        { 'customerInfo.name': { $regex: q, $options: 'i' } },
+        { 'customerInfo.phone': { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    // Date filters: specific date, month, year, or custom range
+    if (date) {
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt = { $gte: start, $lte: end };
+    } else if (year || (month && month !== 'all')) {
+      const currentYear = year ? parseInt(year) : new Date().getFullYear();
+      let startMonth = 0;
+      let endMonth = 11;
+      if (month && month !== 'all') {
+        const m = parseInt(month) - 1;
+        startMonth = m;
+        endMonth = m;
+      }
+      const start = new Date(currentYear, startMonth, 1, 0, 0, 0);
+      const end = new Date(currentYear, endMonth + 1, 0, 23, 59, 59, 999);
+      filter.createdAt = { $gte: start, $lte: end };
+    } else if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    // 1. Calculate Summary KPIs across ALL matching database records
+    const allMatching = await Invoice.find(filter);
+    const summary = {
+      totalBills: allMatching.length,
+      totalSales: 0,
+      totalGst: 0,
+      totalDiscounts: 0,
+      totalDeliveryCharges: 0,
+      totalCancelledBills: 0,
+      totalSuccessfulPayments: 0
+    };
+
+    for (const inv of allMatching) {
+      if (inv.isDeleted) {
+        summary.totalCancelledBills++;
+      } else {
+        summary.totalSales += (inv.grandTotal || 0);
+        summary.totalGst += ((inv.cgstAmount || 0) + (inv.sgstAmount || 0) + (inv.igstAmount || 0));
+        summary.totalDiscounts += (inv.totalDiscount || 0);
+        summary.totalDeliveryCharges += (inv.deliveryCharge || 0);
+        if (inv.paymentStatus === 'PAID') {
+          summary.totalSuccessfulPayments++;
+        }
+      }
+    }
+
+    summary.totalSales = Math.round(summary.totalSales * 100) / 100;
+    summary.totalGst = Math.round(summary.totalGst * 100) / 100;
+    summary.totalDiscounts = Math.round(summary.totalDiscounts * 100) / 100;
+    summary.totalDeliveryCharges = Math.round(summary.totalDeliveryCharges * 100) / 100;
+
+    // 2. Fetch Invoices (either paginated or all if exportAll === 'true')
+    let invoicesQuery = Invoice.find(filter)
+      .populate('staffId', 'fullName staffId username')
+      .populate('shopId', 'name gstNumber')
+      .sort({ createdAt: -1 });
+
+    const total = allMatching.length;
+    let invoices = [];
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    if (exportAll === 'true') {
+      invoices = await invoicesQuery; // Return all matching records for complete PDF / Excel export
+    } else {
+      invoices = await invoicesQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    }
+
+    res.status(200).json({
+      success: true,
+      summary,
+      total,
+      totalPages: exportAll === 'true' ? 1 : Math.ceil(total / limitNum),
+      currentPage: exportAll === 'true' ? 1 : pageNum,
+      invoices
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Export All Matching Bills to Excel (.xlsx)
+ * @route   GET /api/billing/export-excel
+ * @access  Private (Admin, Owner)
+ */
+const exportAllBillsExcel = async (req, res) => {
+  try {
+    const {
+      search,
+      staffId,
+      date,
+      startDate,
+      endDate,
+      month,
+      year,
+      paymentStatus,
+      billStatus
+    } = req.query;
+
+    const filter = {};
+    if (req.user.shopId && req.user.role !== 'owner') {
+      filter.shopId = req.user.shopId;
+    }
+
+    if (billStatus === 'CANCELLED') {
+      filter.isDeleted = true;
+    } else if (billStatus === 'EDITED') {
+      filter.isDeleted = false;
+      filter['editHistory.0'] = { $exists: true };
+    } else if (billStatus === 'ACTIVE') {
+      filter.isDeleted = false;
+    }
+
+    if (paymentStatus && paymentStatus !== 'all') {
+      filter.paymentStatus = paymentStatus.toUpperCase();
+    }
+
+    if (staffId && staffId !== 'all') {
+      filter.staffId = staffId;
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { invoiceNumber: { $regex: q, $options: 'i' } },
+        { 'customerInfo.name': { $regex: q, $options: 'i' } },
+        { 'customerInfo.phone': { $regex: q, $options: 'i' } }
+      ];
+    }
+
+    if (date) {
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(date);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt = { $gte: start, $lte: end };
+    } else if (year || (month && month !== 'all')) {
+      const currentYear = year ? parseInt(year) : new Date().getFullYear();
+      let startMonth = 0;
+      let endMonth = 11;
+      if (month && month !== 'all') {
+        const m = parseInt(month) - 1;
+        startMonth = m;
+        endMonth = m;
+      }
+      const start = new Date(currentYear, startMonth, 1, 0, 0, 0);
+      const end = new Date(currentYear, endMonth + 1, 0, 23, 59, 59, 999);
+      filter.createdAt = { $gte: start, $lte: end };
+    } else if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    const invoices = await Invoice.find(filter)
+      .populate('staffId', 'fullName staffId username')
+      .sort({ createdAt: -1 });
+
+    const rows = invoices.map((inv, idx) => ({
+      'S.No': idx + 1,
+      'Invoice Number': inv.invoiceNumber,
+      'Bill Date': new Date(inv.createdAt).toLocaleString('en-IN'),
+      'Customer Name': inv.customerInfo?.name || 'Walk-in',
+      'Mobile Number': inv.customerInfo?.phone || 'N/A',
+      'Products': (inv.items || []).map(i => `${i.productName} (${i.quantity})`).join(', '),
+      'Total Qty': (inv.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0),
+      'Subtotal (INR)': inv.subtotal || 0,
+      'Total GST (INR)': (inv.cgstAmount || 0) + (inv.sgstAmount || 0) + (inv.igstAmount || 0),
+      'Discount (INR)': inv.totalDiscount || 0,
+      'Delivery Charge (INR)': inv.deliveryCharge || 0,
+      'Grand Total (INR)': inv.grandTotal || 0,
+      'Payment Method': inv.paymentMethod || 'N/A',
+      'Payment Status': inv.paymentStatus || 'PAID',
+      'Staff Name': inv.staffId?.fullName || 'Cashier',
+      'Bill Status': inv.isDeleted ? 'CANCELLED' : ((inv.editHistory && inv.editHistory.length > 0) ? 'EDITED' : 'ACTIVE')
+    }));
+
+    const worksheet = xlsx.utils.json_to_sheet(rows);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'SMP Complete Bill History');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=SMP_Complete_Bill_History_${Date.now()}.xlsx`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * @desc    Get Invoice By ID
  * @route   GET /api/billing/invoice/:id
  * @access  Private
@@ -713,6 +978,8 @@ module.exports = {
   createBillingTransaction,
   verifyQrPaymentAndBill,
   getBillingHistory,
+  getCompleteBillHistory,
+  exportAllBillsExcel,
   getInvoiceById,
   updateBill,
   deleteBill,

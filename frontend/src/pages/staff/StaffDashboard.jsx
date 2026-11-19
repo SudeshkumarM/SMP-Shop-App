@@ -60,48 +60,48 @@ const StaffDashboard = () => {
       {/* KPI Cards Grid */}
       <div className="row g-3 mb-4">
         <div className="col-lg-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
+          <div className="smp-card smp-card-green p-3 h-100 d-flex align-items-center gap-3">
             <div className="p-3 bg-success-subtle text-success rounded-3">
               <i className="bi bi-currency-rupee fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">₹{stats.todaySales?.toFixed(2)}</div>
+              <div className="fs-4 fw-bold text-dark">₹{stats.todaySales?.toFixed(2)}</div>
               <small className="text-muted">Today's Sales</small>
             </div>
           </div>
         </div>
 
         <div className="col-lg-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
+          <div className="smp-card smp-card-blue p-3 h-100 d-flex align-items-center gap-3">
             <div className="p-3 bg-primary-subtle text-primary rounded-3">
               <i className="bi bi-receipt fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{stats.totalBills}</div>
+              <div className="fs-4 fw-bold text-dark">{stats.totalBills}</div>
               <small className="text-muted">Total Bills Generated Today</small>
             </div>
           </div>
         </div>
 
         <div className="col-lg-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
-            <div className="p-3 bg-info-subtle text-info-emphasis rounded-3">
+          <div className="smp-card smp-card-teal p-3 h-100 d-flex align-items-center gap-3">
+            <div className="p-3 rounded-3" style={{ backgroundColor: '#F0FDFA', color: '#0D9488' }}>
               <i className="bi bi-people-fill fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{stats.totalCustomersServed}</div>
+              <div className="fs-4 fw-bold text-dark">{stats.totalCustomersServed}</div>
               <small className="text-muted">Customers Served Today</small>
             </div>
           </div>
         </div>
 
         <div className="col-lg-3 col-sm-6">
-          <div className="smp-card p-3 bg-white h-100 d-flex align-items-center gap-3">
-            <div className="p-3 bg-warning-subtle text-warning-emphasis rounded-3">
+          <div className="smp-card smp-card-orange p-3 h-100 d-flex align-items-center gap-3">
+            <div className="p-3 rounded-3" style={{ backgroundColor: '#FFF7ED', color: '#F97316' }}>
               <i className="bi bi-box-seam fs-3"></i>
             </div>
             <div>
-              <div className="fs-4 fw-bold">{stats.availableProducts}</div>
+              <div className="fs-4 fw-bold text-dark">{stats.availableProducts}</div>
               <small className="text-muted">Available In-Store Products</small>
             </div>
           </div>

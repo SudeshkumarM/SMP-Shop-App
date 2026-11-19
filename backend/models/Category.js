@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const categorySchema = new mongoose.Schema({
+  categoryId: {
+    type: String,
+    trim: true,
+    unique: true,
+    sparse: true
+  },
   name: {
     type: String,
     required: true,
@@ -30,6 +36,11 @@ const categorySchema = new mongoose.Schema({
     ref: 'Category',
     default: null
   },
+  status: {
+    type: String,
+    enum: ['ACTIVE', 'INACTIVE'],
+    default: 'ACTIVE'
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -43,5 +54,15 @@ const categorySchema = new mongoose.Schema({
 });
 
 categorySchema.index({ shopId: 1, slug: 1 }, { unique: true });
+
+// Pre-save hook to keep isActive and status in sync
+categorySchema.pre('save', function (next) {
+  if (this.isModified('status')) {
+    this.isActive = this.status === 'ACTIVE';
+  } else if (this.isModified('isActive')) {
+    this.status = this.isActive ? 'ACTIVE' : 'INACTIVE';
+  }
+  next();
+});
 
 module.exports = mongoose.model('Category', categorySchema);

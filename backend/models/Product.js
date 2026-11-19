@@ -28,6 +28,20 @@ const productSchema = new mongoose.Schema({
     trim: true,
     index: true
   },
+  barcodeFormat: {
+    type: String,
+    enum: ['CODE128', 'EAN13', 'UPCA'],
+    default: 'CODE128'
+  },
+  qrCodeData: {
+    type: String,
+    default: ''
+  },
+  qrCodeType: {
+    type: String,
+    enum: ['PRODUCT', 'PAYMENT', 'INVOICE', 'CUSTOM'],
+    default: 'PRODUCT'
+  },
   brand: {
     type: String,
     required: true,

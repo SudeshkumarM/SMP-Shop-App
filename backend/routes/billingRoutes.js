@@ -5,6 +5,8 @@ const {
   createBillingTransaction,
   verifyQrPaymentAndBill,
   getBillingHistory,
+  getCompleteBillHistory,
+  exportAllBillsExcel,
   getInvoiceById,
   updateBill,
   deleteBill,
@@ -20,6 +22,8 @@ router.get('/customer-lookup/:phone', lookupCustomerByPhone);
 router.post('/create-bill', createBillingTransaction);
 router.post('/verify-qr-payment', verifyQrPaymentAndBill);
 router.get('/history', getBillingHistory);
+router.get('/complete-history', authorize('admin', 'owner'), getCompleteBillHistory);
+router.get('/export-excel', authorize('admin', 'owner'), exportAllBillsExcel);
 router.get('/invoice/:id', getInvoiceById);
 
 // Bill correction and deletion

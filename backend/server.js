@@ -24,6 +24,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const billingRoutes = require('./routes/billingRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -83,11 +84,71 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Error Handler Middleware
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`[SMP Server] Port ${PORT} is occupied by another process. Attempting automated port recovery...`);
+    try {
+      if (process.platform === 'win32') {
+        const { execSync } = require('child_process');
+        const fs = require('fs');
+        const path = require('path');
+        const sysRoot = process.env.SystemRoot || 'C:\\Windows';
+        const netstatBin = fs.existsSync(path.join(sysRoot, 'System32', 'netstat.exe'))
+          ? `"${path.join(sysRoot, 'System32', 'netstat.exe')}"`
+          : 'netstat';
+        const taskkillBin = fs.existsSync(path.join(sysRoot, 'System32', 'taskkill.exe'))
+          ? `"${path.join(sysRoot, 'System32', 'taskkill.exe')}"`
+          : 'taskkill';
+
+        const output = execSync(`${netstatBin} -ano`, {
+          stdio: ['pipe', 'pipe', 'ignore'],
+          encoding: 'utf8'
+        });
+
+        const lines = output.split(/\r?\n/);
+        const pids = new Set();
+        for (const line of lines) {
+          if (line.includes(`:${PORT}`) && line.toUpperCase().includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parts[parts.length - 1];
+            if (pid && /^\d+$/.test(pid) && pid !== '0' && pid !== String(process.pid)) {
+              pids.add(pid);
+            }
+          }
+        }
+
+        if (pids.size > 0) {
+          for (const pid of pids) {
+            try {
+              execSync(`${taskkillBin} /F /PID ${pid}`, { stdio: 'ignore' });
+              console.log(`[SMP Server] Successfully terminated conflicting process PID ${pid} on port ${PORT}.`);
+            } catch (e) {}
+          }
+          setTimeout(() => {
+            server.listen(PORT, () => {
+              console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+            });
+          }, 800);
+          return;
+        }
+      }
+    } catch (recoverErr) {
+      console.error('[SMP Server] Port auto-recovery failed:', recoverErr.message);
+    }
+    console.error(`\n[SMP Server Error] Port ${PORT} is already in use by another process.`);
+    console.error(`[SMP Server Advice] Run 'npm run dev' or terminate the existing process on port ${PORT}.\n`);
+    process.exit(1);
+  } else {
+    console.error(`[SMP Server Error]:`, err);
+  }
+});
 
 server.listen(PORT, () => {
   console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);

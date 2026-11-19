@@ -7,12 +7,20 @@ import InvoicePrintModal from '../../components/pos/InvoicePrintModal';
 const StaffBilling = () => {
   const { addToast } = useToast();
   const searchInputRef = useRef(null);
+  const barcodeInputRef = useRef(null);
+  const videoRef = useRef(null);
 
   // Search & Catalog State
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [availableProducts, setAvailableProducts] = useState([]);
+
+  // Barcode / Hardware Scanner State
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanningBarcode, setScanningBarcode] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
 
   // Bill Items
   const [billItems, setBillItems] = useState([]);
@@ -35,14 +43,34 @@ const StaffBilling = () => {
   // Payment Method & QR Code State
   const [paymentMethod, setPaymentMethod] = useState('POS_CASH'); // POS_CASH, POS_UPI_QR, POS_CARD, POS_UPI
   const [qrUtr, setQrUtr] = useState('');
-  const [merchantUpiId, setMerchantUpiId] = useState('smpstores@upi');
+  const [merchantUpiId, setMerchantUpiId] = useState('smpelite@upi');
 
   // Completion State
   const [submitting, setSubmitting] = useState(false);
   const [createdInvoice, setCreatedInvoice] = useState(null);
+  const [selectedPastInvoice, setSelectedPastInvoice] = useState(null);
   const [lastDeliveryStatus, setLastDeliveryStatus] = useState(null);
 
-  // Fetch available products & shop settings on mount
+  // Audio Beep for Scans
+  const playScanBeep = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // 880Hz A5 beep
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {
+      // AudioContext may be restricted by browser policy
+    }
+  };
+
+  // Fetch available products on mount
   const fetchProducts = async () => {
     try {
       const prodRes = await api.get('/products');
@@ -57,8 +85,8 @@ const StaffBilling = () => {
   useEffect(() => {
     fetchProducts();
 
-    if (searchInputRef.current) {
-      searchInputRef.current.focus();
+    if (barcodeInputRef.current) {
+      barcodeInputRef.current.focus();
     }
 
     // Real-Time Socket.IO Synchronization
@@ -129,31 +157,58 @@ const StaffBilling = () => {
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
 
-  // Barcode enter key trigger
-  const handleSearchKeyDown = async (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (!searchQuery.trim()) return;
+  // Dedicated Hardware USB Barcode Scanner Handler
+  const handleBarcodeScan = async (codeToLookup) => {
+    const rawCode = (codeToLookup || barcodeInput).trim();
+    if (!rawCode) return;
 
+    setScanningBarcode(true);
+    try {
+      // 1. Direct Barcode Lookup
+      let res;
       try {
-        const res = await api.get('/billing/search-product', {
-          params: { query: searchQuery.trim() }
-        });
-        if (res.data.success && res.data.products?.length > 0) {
-          addProductToBill(res.data.products[0]);
-          setSearchQuery('');
-          setSearchResults([]);
-        } else {
-          addToast('No product found with this barcode or name', 'warning');
-        }
+        res = await api.get(`/products/by-barcode/${encodeURIComponent(rawCode)}`);
       } catch (err) {
-        addToast('Search error', 'error');
+        // Fallback: If not found as direct barcode, check if it's a QR code payload
+        res = await api.get('/products/by-qr', { params: { qrData: rawCode } });
       }
+
+      if (res.data?.success && res.data.product) {
+        playScanBeep();
+        addProductToBill(res.data.product);
+        setBarcodeInput('');
+        addToast(`Scanned: ${res.data.product.name} (₹${res.data.product.sellingPrice})`, 'success');
+      } else {
+        // Fallback: search-product endpoint
+        const searchRes = await api.get('/billing/search-product', { params: { query: rawCode } });
+        if (searchRes.data?.success && searchRes.data.products?.length > 0) {
+          playScanBeep();
+          addProductToBill(searchRes.data.products[0]);
+          setBarcodeInput('');
+        } else {
+          addToast(`No product found matching code: "${rawCode}"`, 'warning');
+        }
+      }
+    } catch (err) {
+      console.error('Scan error:', err);
+      addToast(err.response?.data?.message || `Barcode ${rawCode} not recognized in inventory.`, 'error');
+    } finally {
+      setScanningBarcode(false);
+      if (barcodeInputRef.current) barcodeInputRef.current.focus();
     }
   };
 
+  const handleBarcodeKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleBarcodeScan();
+    }
+  };
+
+  // Add Product to Bill Cart
   const addProductToBill = (product) => {
-    if (product.availableQuantity <= 0) {
+    const stock = product.availableQuantity ?? product.stock ?? 100;
+    if (stock <= 0) {
       addToast(`${product.name} is currently out of stock!`, 'error');
       return;
     }
@@ -161,8 +216,8 @@ const StaffBilling = () => {
     const existingIdx = billItems.findIndex((item) => item.productId === product._id);
     if (existingIdx > -1) {
       const existing = billItems[existingIdx];
-      if (existing.quantity >= product.availableQuantity) {
-        addToast(`Cannot add more. In-store stock is ${product.availableQuantity}`, 'warning');
+      if (existing.quantity >= stock) {
+        addToast(`Cannot add more. In-store stock is ${stock}`, 'warning');
         return;
       }
       const updated = [...billItems];
@@ -170,8 +225,8 @@ const StaffBilling = () => {
       setBillItems(updated);
     } else {
       const defaultSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'L';
-      const defaultColor = product.colours && product.colours.length > 0 ? product.colours[0] : 'Classic';
-      const unitPrice = product.sellingPrice || product.originalPrice || 0;
+      const defaultColor = product.colours && product.colours.length > 0 ? product.colours[0] : 'Classic Blue';
+      const unitPrice = product.sellingPrice || product.originalPrice || 500;
       const gstPercent = product.gstPercent || 5;
 
       setBillItems([
@@ -187,12 +242,10 @@ const StaffBilling = () => {
           gstPercent,
           quantity: 1,
           discountAmount: 0,
-          maxStock: product.availableQuantity
+          maxStock: stock
         }
       ]);
     }
-
-    addToast(`Added ${product.name} to bill`, 'success');
   };
 
   const updateQuantity = (idx, newQty) => {
@@ -255,10 +308,38 @@ const StaffBilling = () => {
   const upiIntentUri = `upi://pay?pa=${encodeURIComponent(merchantUpiId)}&pn=SMP%20Store&am=${totals.grandTotal.toFixed(2)}&cu=INR&tn=SMP%20Bill`;
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiIntentUri)}&color=071426&bgcolor=ffffff`;
 
+  // Camera Scanner Functions
+  const startCamera = async () => {
+    setShowCameraModal(true);
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          setCameraActive(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Camera stream warning:', err);
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
+    }
+    setCameraActive(false);
+    setShowCameraModal(false);
+  };
+
   // Complete Billing
   const handleCompleteBilling = async () => {
     if (billItems.length === 0) {
-      addToast('Bill is empty. Please select products first.', 'warning');
+      addToast('Bill is empty. Please select or scan products first.', 'warning');
       return;
     }
 
@@ -298,7 +379,7 @@ const StaffBilling = () => {
       if (res.data.success) {
         const delStatus = res.data.deliveryStatus || 'Sent';
         setLastDeliveryStatus(delStatus);
-        addToast(`Invoice generated successfully! Notification: ${delStatus}`, 'success');
+        addToast(`Invoice generated successfully! Bill: ${res.data.invoice?.invoiceNumber}`, 'success');
 
         const invoiceWithStatus = {
           ...res.data.invoice,
@@ -327,89 +408,119 @@ const StaffBilling = () => {
   };
 
   return (
-    <div className="fade-in">
+    <div className="fade-in pb-5">
+      {/* Top POS Hardware & Scanner Hub */}
+      <div className="smp-card p-3 mb-3 border border-primary">
+        <div className="row g-2 align-items-center">
+          <div className="col-lg-6 col-md-7">
+            <label className="form-label small fw-bold text-uppercase text-dark mb-1 d-flex align-items-center gap-1">
+              <i className="bi bi-upc-scan text-primary fs-5"></i>
+              Hardware USB Barcode & QR Scanner
+              <span className="badge bg-success ms-2 font-monospace">READY</span>
+            </label>
+            <div className="input-group">
+              <span className="input-group-text bg-primary text-white border-primary">
+                <i className="bi bi-upc"></i>
+              </span>
+              <input
+                ref={barcodeInputRef}
+                type="text"
+                className="form-control pos-search-input font-monospace"
+                placeholder="Scan barcode with USB scanner (e.g. 8901234567890) & Enter..."
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                onKeyDown={handleBarcodeKeyDown}
+              />
+              <button
+                type="button"
+                className="btn btn-teal fw-bold"
+                onClick={() => handleBarcodeScan()}
+                disabled={scanningBarcode}
+              >
+                {scanningBarcode ? 'Scanning...' : 'Scan / Add'}
+              </button>
+            </div>
+            <div className="d-flex justify-content-between mt-1">
+              <small className="text-muted">Instant USB wedge auto-enters on scan</small>
+              <button
+                type="button"
+                className="btn btn-link btn-sm text-primary p-0 text-decoration-none fw-bold"
+                onClick={() => handleBarcodeScan('8901234567890')}
+              >
+                <i className="bi bi-lightning-fill text-warning me-1"></i>
+                Scan Initial Shirt (8901234567890 - ₹500)
+              </button>
+            </div>
+          </div>
+
+          <div className="col-lg-6 col-md-5 d-flex flex-wrap align-items-center justify-content-md-end gap-2 mt-2 mt-md-0">
+            <button
+              type="button"
+              className="btn btn-teal fw-bold"
+              onClick={startCamera}
+            >
+              <i className="bi bi-camera-fill me-1"></i> Scan via Camera
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="row g-3">
         {/* Left Column: Product Selection & Current Bill */}
         <div className="col-lg-8">
-          {/* In-Stock Quick-Pick Bar */}
-          {availableProducts.length > 0 ? (
-            <div
-              className="p-3 mb-3 rounded-3 shadow-sm d-flex flex-wrap align-items-center justify-content-between gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-            >
-              <div>
-                <div className="small text-uppercase fw-bold text-white mb-1">
-                  <i className="bi bi-boxes me-1" style={{ color: '#2563EB' }}></i> Quick Add From In-Stock Products ({availableProducts.length})
-                </div>
-                <div className="d-flex flex-wrap gap-2">
-                  {availableProducts.slice(0, 5).map((prod) => (
-                    <button
-                      key={prod._id}
-                      type="button"
-                      onClick={() => addProductToBill(prod)}
-                      className="btn btn-sm text-start py-1 px-3 rounded-pill fw-medium"
-                      style={{
-                        backgroundColor: '#10243D',
-                        border: '1px solid #3b82f6',
-                        color: '#DCEBFF'
-                      }}
-                    >
-                      <i className="bi bi-plus me-1 text-primary"></i>
-                      {prod.name} (₹{prod.sellingPrice})
-                    </button>
-                  ))}
-                </div>
+          {/* Quick-Add In-Stock Products Bar */}
+          {availableProducts.length > 0 && (
+            <div className="smp-card p-3 mb-3">
+              <div className="small text-uppercase fw-bold text-dark mb-2 d-flex align-items-center gap-1">
+                <i className="bi bi-boxes text-primary"></i> Catalog Quick Add:
               </div>
-            </div>
-          ) : (
-            <div
-              className="p-3 mb-3 rounded-3 shadow-sm d-flex align-items-center justify-content-between gap-3"
-              style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-            >
-              <div className="d-flex align-items-center gap-2">
-                <i className="bi bi-info-circle-fill text-primary fs-5"></i>
-                <div>
-                  <div className="fw-bold text-white small">No Products Currently in Catalog</div>
-                  <small style={{ color: '#B8C5D6' }}>Admin and Owner can add products anytime via Product Management.</small>
-                </div>
+              <div className="d-flex flex-wrap gap-2">
+                {availableProducts.map((prod) => (
+                  <button
+                    key={prod._id}
+                    type="button"
+                    onClick={() => addProductToBill(prod)}
+                    className="btn btn-sm btn-outline-primary py-1 px-3 rounded-pill fw-medium"
+                  >
+                    <i className="bi bi-plus-lg me-1 text-primary"></i>
+                    {prod.name} (₹{prod.sellingPrice})
+                    <span className="badge bg-secondary ms-1">{prod.sku}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Barcode & Search Bar */}
-          <div
-            className="p-3 mb-3 rounded-3 shadow-sm position-relative"
-            style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-          >
+          {/* Text Search Fallback */}
+          <div className="smp-card p-3 mb-3 position-relative">
             <div className="input-group">
-              <span className="input-group-text px-3" style={{ backgroundColor: '#2563EB', color: '#FFFFFF', border: '1px solid #60a5fa' }}>
-                <i className="bi bi-upc-scan fs-5"></i>
+              <span className="input-group-text bg-secondary border-secondary text-muted">
+                <i className="bi bi-search"></i>
               </span>
               <input
                 ref={searchInputRef}
                 type="text"
-                className="form-control pos-search-input"
-                placeholder="Scan Barcode or type Product Name / SKU (Press Enter)..."
+                className="form-control"
+                placeholder="Or search by product title, color or size..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
               />
               {searchQuery && (
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
-                  onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                  onClick={() => setSearchQuery('')}
                 >
                   <i className="bi bi-x-lg"></i>
                 </button>
               )}
             </div>
 
-            {/* Live Search Autocomplete Dropdown */}
+            {/* Live Search Results Dropdown */}
             {searchResults.length > 0 && (
               <div
-                className="position-absolute start-0 end-0 mx-3 mt-1 rounded-3 shadow-lg z-3 overflow-hidden"
-                style={{ backgroundColor: '#152A45', border: '1.5px solid #3b82f6', maxHeight: '280px', overflowY: 'auto' }}
+                className="position-absolute start-0 end-0 mt-1 smp-card shadow-lg z-3 p-2 mx-3"
+                style={{ maxHeight: '250px', overflowY: 'auto' }}
               >
                 {searchResults.map((p) => (
                   <div
@@ -419,21 +530,14 @@ const StaffBilling = () => {
                       setSearchQuery('');
                       setSearchResults([]);
                     }}
-                    className="p-3 border-bottom d-flex align-items-center justify-content-between cursor-pointer"
-                    style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#10243D'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    className="p-2 border-bottom d-flex justify-content-between align-items-center cursor-pointer rounded hover-bg"
+                    style={{ cursor: 'pointer' }}
                   >
                     <div>
-                      <div className="fw-bold text-white">{p.name}</div>
-                      <small style={{ color: '#B8C5D6' }}>
-                        SKU: {p.sku} | Barcode: {p.barcode} | In Stock: <strong className="text-success">{p.availableQuantity} units</strong>
-                      </small>
+                      <span className="fw-bold text-dark">{p.name}</span>
+                      <small className="text-muted d-block font-monospace">SKU: {p.sku} | Barcode: {p.barcode}</small>
                     </div>
-                    <div className="text-end">
-                      <div className="fw-bold text-primary">₹{p.sellingPrice}</div>
-                      <span className="badge rounded-pill" style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}>Add to Bill +</span>
-                    </div>
+                    <span className="fw-bold text-primary">₹{p.sellingPrice}</span>
                   </div>
                 ))}
               </div>
@@ -441,19 +545,16 @@ const StaffBilling = () => {
           </div>
 
           {/* Active Bill Table */}
-          <div
-            className="p-3 rounded-3 shadow-sm mb-3"
-            style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-          >
+          <div className="smp-card p-3 mb-3">
             <div className="d-flex justify-content-between align-items-center mb-3">
-              <h5 className="fw-bold brand-font text-white mb-0">
+              <h5 className="fw-bold brand-font text-dark mb-0">
                 <i className="bi bi-receipt-cutoff me-2 text-primary"></i> Current POS Bill Items ({billItems.length})
               </h5>
               {billItems.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setBillItems([])}
-                  className="btn btn-outline-danger btn-sm rounded-pill px-3 py-1"
+                  className="btn btn-danger btn-sm rounded-pill px-3 py-1"
                 >
                   <i className="bi bi-trash3 me-1"></i> Clear Bill
                 </button>
@@ -461,14 +562,14 @@ const StaffBilling = () => {
             </div>
 
             {billItems.length === 0 ? (
-              <div className="text-center py-5" style={{ color: '#B8C5D6' }}>
-                <i className="bi bi-cart-x display-4 mb-2 d-block" style={{ color: '#3b82f6' }}></i>
-                <h6 className="fw-bold text-white">Bill is currently empty</h6>
-                <p className="small mb-0">Scan a product barcode or use the search bar above to begin billing.</p>
+              <div className="text-center py-5 text-muted">
+                <i className="bi bi-cart-x display-4 mb-2 d-block text-primary"></i>
+                <h6 className="fw-bold text-dark">Bill is currently empty</h6>
+                <p className="small mb-0">Scan a product barcode or click a product above to start billing.</p>
               </div>
             ) : (
               <div className="table-responsive">
-                <table className="table table-hover align-middle pos-table">
+                <table className="table align-middle pos-table mb-0">
                   <thead>
                     <tr>
                       <th>Product Details</th>
@@ -482,19 +583,21 @@ const StaffBilling = () => {
                   </thead>
                   <tbody>
                     {billItems.map((item, idx) => {
-                      const itemTotal = (item.unitPrice * item.quantity) + ((item.unitPrice * item.quantity * item.gstPercent) / 100);
+                      const itemTotal =
+                        item.unitPrice * item.quantity +
+                        (item.unitPrice * item.quantity * item.gstPercent) / 100;
                       return (
                         <tr key={idx}>
                           <td>
-                            <div className="fw-bold text-white">{item.productName}</div>
-                            <small style={{ color: '#B8C5D6' }}>SKU: {item.sku}</small>
+                            <div className="fw-bold text-dark">{item.productName}</div>
+                            <small className="text-muted font-monospace">SKU: {item.sku}</small>
                           </td>
                           <td>
-                            <span className="badge" style={{ backgroundColor: '#10243D', color: '#DCEBFF', border: '1px solid #293D58' }}>
+                            <span className="badge bg-light text-primary border">
                               {item.size} | {item.colour}
                             </span>
                           </td>
-                          <td className="text-end fw-semibold">₹{item.unitPrice.toFixed(2)}</td>
+                          <td className="text-end font-monospace text-dark">₹{item.unitPrice.toFixed(2)}</td>
                           <td className="text-center">
                             <div className="input-group input-group-sm">
                               <button
@@ -504,7 +607,9 @@ const StaffBilling = () => {
                               >
                                 -
                               </button>
-                              <span className="form-control text-center fw-bold px-1">{item.quantity}</span>
+                              <span className="form-control text-center fw-bold px-1 bg-light text-dark">
+                                {item.quantity}
+                              </span>
                               <button
                                 type="button"
                                 className="btn btn-outline-secondary"
@@ -514,8 +619,12 @@ const StaffBilling = () => {
                               </button>
                             </div>
                           </td>
-                          <td className="text-end text-warning small">{item.gstPercent}%</td>
-                          <td className="text-end fw-bold text-white">₹{itemTotal.toFixed(2)}</td>
+                          <td className="text-end font-monospace small fw-bold" style={{ color: '#D97706' }}>
+                            {item.gstPercent}%
+                          </td>
+                          <td className="text-end fw-bold text-dark font-monospace">
+                            ₹{itemTotal.toFixed(2)}
+                          </td>
                           <td className="text-center">
                             <button
                               type="button"
@@ -539,20 +648,17 @@ const StaffBilling = () => {
         {/* Right Column: Customer Info, Payment & QR Code */}
         <div className="col-lg-4">
           {/* Customer CRM Box */}
-          <div
-            className="p-3 mb-3 rounded-3 shadow-sm"
-            style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-          >
+          <div className="smp-card p-3 mb-3">
             <div className="d-flex align-items-center justify-content-between mb-2">
-              <h6 className="fw-bold brand-font text-white mb-0">
+              <h6 className="fw-bold brand-font text-dark mb-0">
                 <i className="bi bi-person-lines-fill me-1 text-primary"></i> Customer Information
               </h6>
               {lookupCustomer && previousInvoices.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowHistoryModal(true)}
-                  className="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill fw-semibold"
-                  style={{ fontSize: '0.75rem', borderColor: '#3b82f6', color: '#DCEBFF' }}
+                  className="btn btn-purple btn-sm py-0 px-2 rounded-pill fw-semibold"
+                  style={{ fontSize: '0.75rem' }}
                 >
                   <i className="bi bi-clock-history me-1"></i> Past Purchases ({previousInvoices.length})
                 </button>
@@ -560,7 +666,7 @@ const StaffBilling = () => {
             </div>
 
             <div className="mb-2">
-              <label className="form-label small fw-bold text-uppercase" style={{ color: '#B8C5D6', fontSize: '0.72rem' }}>
+              <label className="form-label small fw-bold text-uppercase text-muted">
                 Customer Mobile Number <span className="text-danger">*</span>
               </label>
               <div className="input-group input-group-sm">
@@ -570,7 +676,7 @@ const StaffBilling = () => {
                   maxLength="10"
                   required
                   placeholder="10-digit mobile number"
-                  className="form-control"
+                  className="form-control font-monospace"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, ''))}
                 />
@@ -578,7 +684,7 @@ const StaffBilling = () => {
             </div>
 
             <div className="mb-2">
-              <label className="form-label small fw-bold text-uppercase" style={{ color: '#B8C5D6', fontSize: '0.72rem' }}>
+              <label className="form-label small fw-bold text-uppercase text-muted">
                 Customer Full Name <span className="text-danger">*</span>
               </label>
               <input
@@ -592,7 +698,7 @@ const StaffBilling = () => {
             </div>
 
             <div className="mb-2">
-              <label className="form-label small fw-bold text-uppercase" style={{ color: '#B8C5D6', fontSize: '0.72rem' }}>
+              <label className="form-label small fw-bold text-uppercase text-muted">
                 Email Address (Optional)
               </label>
               <input
@@ -603,41 +709,23 @@ const StaffBilling = () => {
                 onChange={(e) => setCustomerEmail(e.target.value)}
               />
             </div>
-
-            {/* Notification & WhatsApp / SMS Policy */}
-            <div className="p-2 rounded-3 mt-3" style={{ backgroundColor: '#10243D', border: '1px solid #293D58' }}>
-              <div className="d-flex align-items-center justify-content-between mb-1">
-                <small className="fw-semibold text-white d-flex align-items-center gap-1">
-                  <i className="bi bi-bell-fill text-primary"></i> Bill Receipt Delivery
-                </small>
-                <span className="badge" style={{ backgroundColor: 'rgba(37, 99, 235, 0.2)', color: '#DCEBFF', border: '1px solid #3b82f6', fontSize: '0.68rem' }}>
-                  WhatsApp + SMS Fallback
-                </span>
-              </div>
-              <small className="d-block" style={{ color: '#B8C5D6', fontSize: '0.72rem' }}>
-                Automatic delivery sends official WhatsApp notification. If unavailable, falls back to SMS instantly.
-              </small>
-            </div>
           </div>
 
           {/* Bill Calculation & Payment Options */}
-          <div
-            className="p-4 rounded-3 shadow-sm"
-            style={{ backgroundColor: '#152A45', border: '1px solid #293D58' }}
-          >
-            <h5 className="fw-bold brand-font text-white mb-3 border-bottom pb-2" style={{ borderColor: '#293D58' }}>
+          <div className="smp-card p-4">
+            <h5 className="fw-bold brand-font text-dark mb-3 border-bottom pb-2">
               Bill Breakdown & Payment
             </h5>
 
             <div className="d-flex justify-content-between py-1 small">
-              <span style={{ color: '#B8C5D6' }}>Subtotal (Excl. Tax):</span>
-              <span className="fw-semibold text-white">₹{totals.subtotal.toFixed(2)}</span>
+              <span className="text-muted">Subtotal (Excl. Tax):</span>
+              <span className="fw-semibold text-dark font-monospace">₹{totals.subtotal.toFixed(2)}</span>
             </div>
 
             {/* Discount Inputs */}
-            <div className="py-2 border-top border-bottom my-2" style={{ borderColor: '#293D58' }}>
+            <div className="py-2 border-top border-bottom my-2">
               <div className="d-flex justify-content-between align-items-center mb-1">
-                <span className="small fw-semibold text-white">Counter Discount</span>
+                <span className="small fw-semibold text-dark">Counter Discount</span>
                 <div className="btn-group btn-group-sm">
                   <button
                     type="button"
@@ -658,7 +746,7 @@ const StaffBilling = () => {
               <input
                 type="number"
                 min="0"
-                className="form-control form-control-sm text-end fw-bold"
+                className="form-control form-control-sm text-end fw-bold font-monospace"
                 placeholder={discountType === 'flat' ? '₹ Discount' : '% Discount'}
                 value={discountValue}
                 onChange={(e) => setDiscountValue(Number(e.target.value))}
@@ -666,139 +754,132 @@ const StaffBilling = () => {
             </div>
 
             {totals.overallDiscount > 0 && (
-              <div className="d-flex justify-content-between py-1 small text-danger">
+              <div className="d-flex justify-content-between py-1 small text-danger font-monospace">
                 <span>Discount Applied:</span>
                 <span className="fw-bold">-₹{totals.overallDiscount.toFixed(2)}</span>
               </div>
             )}
 
             <div className="d-flex justify-content-between py-1 small">
-              <span style={{ color: '#B8C5D6' }}>CGST (2.5%):</span>
-              <span className="text-white">₹{totals.cgst.toFixed(2)}</span>
+              <span className="text-muted">CGST (2.5%):</span>
+              <span className="text-dark font-monospace">₹{totals.cgst.toFixed(2)}</span>
             </div>
             <div className="d-flex justify-content-between py-1 small">
-              <span style={{ color: '#B8C5D6' }}>SGST (2.5%):</span>
-              <span className="text-white">₹{totals.sgst.toFixed(2)}</span>
+              <span className="text-muted">SGST (2.5%):</span>
+              <span className="text-dark font-monospace">₹{totals.sgst.toFixed(2)}</span>
+            </div>
+
+            {/* Delivery Toggle */}
+            <div className="form-check form-switch my-2">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                checked={hasDelivery}
+                onChange={(e) => setHasDelivery(e.target.checked)}
+                id="deliveryToggle"
+              />
+              <label className="form-check-label small text-dark" htmlFor="deliveryToggle">
+                Add Home Delivery Charge
+              </label>
             </div>
 
             {hasDelivery && (
-              <div className="d-flex justify-content-between py-1 small text-primary">
-                <span>Delivery Charge:</span>
-                <span className="fw-bold">+₹{totals.deliveryFee.toFixed(2)}</span>
+              <div className="input-group input-group-sm mb-2">
+                <span className="input-group-text">₹ Delivery</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-control text-end font-monospace"
+                  value={deliveryCharge}
+                  onChange={(e) => setDeliveryCharge(Number(e.target.value))}
+                />
               </div>
             )}
 
-            <hr className="my-2" style={{ borderColor: '#293D58' }} />
+            <hr className="my-2" />
 
             <div className="d-flex justify-content-between py-2 align-items-center">
-              <span className="fw-bold fs-6 text-white">Final Payable:</span>
-              <span className="fs-3 fw-bold" style={{ color: '#60a5fa' }}>₹{totals.grandTotal.toFixed(2)}</span>
+              <span className="fw-bold fs-6 text-dark">Final Payable:</span>
+              <span className="fs-3 fw-bold text-primary font-monospace">₹{totals.grandTotal.toFixed(2)}</span>
             </div>
 
             {/* Payment Method Selector */}
             <div className="mt-3">
-              <label className="small fw-bold text-uppercase mb-2 d-block" style={{ color: '#B8C5D6' }}>
+              <label className="small fw-bold text-uppercase mb-2 d-block text-muted">
                 Select Payment Mode
               </label>
 
-              {/* 4 Mode Grid with Scan / Pay by QR */}
               <div className="row g-2 mb-3">
                 <div className="col-6">
                   <button
                     type="button"
                     onClick={() => setPaymentMethod('POS_CASH')}
-                    className={`btn w-100 py-2 d-flex align-items-center justify-content-center gap-1 ${
-                      paymentMethod === 'POS_CASH' ? 'btn-primary' : 'btn-outline-secondary'
-                    }`}
+                    className={`btn w-100 py-2 ${paymentMethod === 'POS_CASH' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
-                    <i className="bi bi-cash-stack"></i> Cash
+                    <i className="bi bi-cash-stack me-1"></i> Cash
                   </button>
                 </div>
                 <div className="col-6">
                   <button
                     type="button"
                     onClick={() => setPaymentMethod('POS_UPI_QR')}
-                    className={`btn w-100 py-2 d-flex align-items-center justify-content-center gap-1 ${
-                      paymentMethod === 'POS_UPI_QR' ? 'btn-primary' : 'btn-outline-secondary'
-                    }`}
-                    style={paymentMethod === 'POS_UPI_QR' ? { border: '2px solid #60a5fa' } : {}}
+                    className={`btn w-100 py-2 ${paymentMethod === 'POS_UPI_QR' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
-                    <i className="bi bi-qr-code-scan"></i> Scan / Pay QR
+                    <i className="bi bi-qr-code-scan me-1"></i> UPI QR
                   </button>
                 </div>
                 <div className="col-6">
                   <button
                     type="button"
                     onClick={() => setPaymentMethod('POS_CARD')}
-                    className={`btn w-100 py-2 d-flex align-items-center justify-content-center gap-1 ${
-                      paymentMethod === 'POS_CARD' ? 'btn-primary' : 'btn-outline-secondary'
-                    }`}
+                    className={`btn w-100 py-2 ${paymentMethod === 'POS_CARD' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
-                    <i className="bi bi-credit-card"></i> Card
+                    <i className="bi bi-credit-card me-1"></i> Card
                   </button>
                 </div>
                 <div className="col-6">
                   <button
                     type="button"
                     onClick={() => setPaymentMethod('POS_UPI')}
-                    className={`btn w-100 py-2 d-flex align-items-center justify-content-center gap-1 ${
-                      paymentMethod === 'POS_UPI' ? 'btn-primary' : 'btn-outline-secondary'
-                    }`}
+                    className={`btn w-100 py-2 ${paymentMethod === 'POS_UPI' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
-                    <i className="bi bi-phone"></i> Manual UPI
+                    <i className="bi bi-phone me-1"></i> Manual UPI
                   </button>
                 </div>
               </div>
 
-              {/* Interactive Dynamic QR Payment Box */}
+              {/* Dynamic QR Code Box for UPI */}
               {paymentMethod === 'POS_UPI_QR' && (
-                <div
-                  className="p-3 rounded-3 text-center mb-3 fade-in"
-                  style={{ backgroundColor: '#10243D', border: '1.5px solid #3b82f6' }}
-                >
+                <div className="p-3 bg-light rounded-3 text-center mb-3 border border-primary fade-in">
                   <div className="d-flex align-items-center justify-content-between mb-2">
-                    <span className="badge" style={{ backgroundColor: '#2563EB', color: '#FFFFFF' }}>
-                      <i className="bi bi-qr-code me-1"></i> Dynamic UPI QR
-                    </span>
-                    <span className="fw-bold fs-6 text-white">₹{totals.grandTotal.toFixed(2)}</span>
+                    <span className="badge bg-primary">Dynamic UPI QR</span>
+                    <span className="fw-bold fs-6 text-dark font-monospace">₹{totals.grandTotal.toFixed(2)}</span>
                   </div>
 
-                  <div className="upi-qr-card my-2">
+                  <div className="upi-qr-card my-2 p-2 bg-white rounded d-inline-block">
                     <img
                       src={qrCodeUrl}
                       alt="UPI QR Code"
-                      className="img-fluid"
-                      style={{ width: '180px', height: '180px' }}
+                      style={{ width: '160px', height: '160px' }}
                     />
                   </div>
 
-                  <div className="small mb-2 text-white">
-                    Merchant UPI ID: <strong className="font-monospace text-primary">{merchantUpiId}</strong>
+                  <div className="small mb-2 text-dark">
+                    VPA: <strong className="font-monospace text-primary">{merchantUpiId}</strong>
                   </div>
 
-                  <div className="d-flex justify-content-center gap-1 mb-3 flex-wrap">
-                    <span className="badge" style={{ backgroundColor: '#152A45', color: '#DCEBFF', border: '1px solid #293D58', fontSize: '0.65rem' }}>GPay</span>
-                    <span className="badge" style={{ backgroundColor: '#152A45', color: '#DCEBFF', border: '1px solid #293D58', fontSize: '0.65rem' }}>PhonePe</span>
-                    <span className="badge" style={{ backgroundColor: '#152A45', color: '#DCEBFF', border: '1px solid #293D58', fontSize: '0.65rem' }}>Paytm</span>
-                    <span className="badge" style={{ backgroundColor: '#152A45', color: '#DCEBFF', border: '1px solid #293D58', fontSize: '0.65rem' }}>BHIM</span>
-                  </div>
-
-                  {/* Payment Verification Field */}
                   <div className="text-start">
-                    <label className="form-label small fw-bold text-uppercase" style={{ color: '#DCEBFF', fontSize: '0.72rem' }}>
-                      Customer UPI UTR / Reference Number <span className="text-danger">*</span>
+                    <label className="form-label small fw-bold text-uppercase text-dark">
+                      UPI UTR / Reference No. <span className="text-danger">*</span>
                     </label>
                     <input
                       type="text"
                       maxLength="16"
-                      placeholder="Enter 12-digit UTR from customer app"
+                      placeholder="12-digit UTR from customer screen"
                       className="form-control form-control-sm font-monospace"
                       value={qrUtr}
                       onChange={(e) => setQrUtr(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
                     />
-                    <small style={{ color: '#B8C5D6', fontSize: '0.7rem' }}>
-                      <i className="bi bi-shield-check text-primary me-1"></i> Verify UTR on customer screen before confirming payment.
-                    </small>
                   </div>
                 </div>
               )}
@@ -809,78 +890,169 @@ const StaffBilling = () => {
               type="button"
               disabled={submitting || billItems.length === 0 || (paymentMethod === 'POS_UPI_QR' && qrUtr.trim().length < 6)}
               onClick={handleCompleteBilling}
-              className="btn btn-primary btn-lg w-100 rounded-pill fw-bold shadow mt-3 py-3 text-uppercase tracking-wider"
-              style={{
-                background: 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
-                border: '1px solid #60a5fa',
-                color: '#FFFFFF'
-              }}
+              className="btn btn-teal btn-lg w-100 rounded-pill fw-bold shadow mt-3 py-3 text-uppercase"
             >
               {submitting ? (
                 <>
-                  <span className="spinner-border spinner-border-sm me-2"></span>
-                  Processing Invoice...
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Generating Invoice...
                 </>
-              ) : paymentMethod === 'POS_UPI_QR' ? (
-                `Verify QR Payment & Generate Bill (₹${totals.grandTotal.toFixed(2)})`
               ) : (
-                `Generate Paid Bill (₹${totals.grandTotal.toFixed(2)})`
+                <>
+                  <i className="bi bi-check2-circle me-2 fs-5"></i>
+                  Complete Bill & Print
+                </>
               )}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Customer Past Purchase History Modal */}
-      {showHistoryModal && (
-        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content shadow-lg" style={{ backgroundColor: '#152A45', border: '1.5px solid #293D58' }}>
-              <div className="modal-header border-bottom py-3 px-4" style={{ backgroundColor: '#10243D', borderColor: '#293D58' }}>
-                <h5 className="modal-title fw-bold brand-font text-white">
-                  <i className="bi bi-clock-history text-primary me-2"></i>
-                  Previous Purchases: {lookupCustomer?.fullName} ({customerPhone})
+      {/* Camera Barcode / QR Scanner Modal */}
+      {showCameraModal && (
+        <div className="modal show d-block bg-dark bg-opacity-75 fade-in" tabIndex="-1">
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header border-bottom">
+                <h5 className="modal-title fw-bold text-dark">
+                  <i className="bi bi-camera-fill text-primary me-2"></i>
+                  Live Camera Barcode / QR Scanner
                 </h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setShowHistoryModal(false)}></button>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={stopCamera}
+                ></button>
               </div>
-              <div className="modal-body p-4">
-                <div className="table-responsive">
-                  <table className="table table-hover align-middle">
-                    <thead>
-                      <tr>
-                        <th>Invoice #</th>
-                        <th>Date</th>
-                        <th>Items</th>
-                        <th>Payment Mode</th>
-                        <th className="text-end">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previousInvoices.map((inv) => (
-                        <tr key={inv._id}>
-                          <td className="font-monospace fw-bold text-primary">{inv.invoiceNumber}</td>
-                          <td>{new Date(inv.createdAt).toLocaleDateString('en-IN')}</td>
-                          <td>
-                            {inv.items?.map((it, idx) => (
-                              <span key={idx} className="badge me-1" style={{ backgroundColor: '#10243D', color: '#DCEBFF', border: '1px solid #293D58' }}>
-                                {it.productName} ({it.quantity})
-                              </span>
-                            ))}
-                          </td>
-                          <td>
-                            <span className="badge" style={{ backgroundColor: '#10243D', color: '#DCEBFF', border: '1px solid #293D58' }}>
-                              {inv.paymentMethod}
-                            </span>
-                          </td>
-                          <td className="text-end fw-bold text-white">₹{inv.grandTotal.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+
+              <div className="modal-body p-4 text-center">
+                <div
+                  className="bg-dark rounded-3 position-relative overflow-hidden mb-3 border"
+                  style={{ minHeight: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <video
+                    ref={videoRef}
+                    style={{ width: '100%', maxHeight: '240px', objectFit: 'cover' }}
+                    playsInline
+                    muted
+                  ></video>
+                  {!cameraActive && (
+                    <div className="text-center p-3 text-muted">
+                      <i className="bi bi-webcam fs-1 d-block mb-1 text-secondary"></i>
+                      <small>Position garment barcode or QR code within view</small>
+                    </div>
+                  )}
+                  {/* Scan target reticle overlay */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      width: '180px',
+                      height: '110px',
+                      border: '2px dashed #14B8A6',
+                      borderRadius: '8px',
+                      pointerEvents: 'none'
+                    }}
+                  ></div>
+                </div>
+
+                <div className="p-3 bg-light rounded-3 text-start mb-3 border">
+                  <small className="text-muted d-block fw-bold mb-1">Instant Scan Simulator:</small>
+                  <div className="d-flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        handleBarcodeScan('8901234567890');
+                        stopCamera();
+                      }}
+                    >
+                      <i className="bi bi-upc me-1"></i> Scan Shirt Barcode (8901234567890)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-purple btn-sm"
+                      onClick={() => {
+                        handleBarcodeScan('smp:product:SMP-SHIRT-001');
+                        stopCamera();
+                      }}
+                    >
+                      <i className="bi bi-qr-code me-1"></i> Scan Shirt QR Code
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div className="modal-footer border-top py-3 px-4" style={{ backgroundColor: '#10243D', borderColor: '#293D58' }}>
-                <button type="button" className="btn btn-secondary rounded-pill px-4" onClick={() => setShowHistoryModal(false)}>
+
+              <div className="modal-footer border-top">
+                <button
+                  type="button"
+                  className="btn btn-cancel"
+                  onClick={stopCamera}
+                >
+                  Close Scanner
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Past Purchases History Modal */}
+      {showHistoryModal && (
+        <div className="modal show d-block bg-dark bg-opacity-75 fade-in" tabIndex="-1">
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header border-bottom">
+                <h5 className="modal-title fw-bold text-dark d-flex align-items-center gap-2">
+                  <i className="bi bi-clock-history text-purple"></i>
+                  Past Purchase History ({lookupCustomer?.fullName || customerName})
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setShowHistoryModal(false)}></button>
+              </div>
+              <div className="modal-body p-3">
+                {previousInvoices.length === 0 ? (
+                  <p className="text-muted text-center py-4 mb-0">No past purchases on record.</p>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle small mb-0">
+                      <thead>
+                        <tr>
+                          <th>Invoice #</th>
+                          <th>Date</th>
+                          <th>Items</th>
+                          <th>Grand Total</th>
+                          <th>Payment</th>
+                          <th className="text-end">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previousInvoices.map((inv) => (
+                          <tr key={inv._id}>
+                            <td className="fw-bold text-primary">{inv.invoiceNumber}</td>
+                            <td>{new Date(inv.createdAt).toLocaleDateString()}</td>
+                            <td>{inv.items?.length || 1} item(s)</td>
+                            <td className="fw-bold text-dark">₹{inv.grandTotal?.toFixed(2)}</td>
+                            <td><span className="badge bg-light text-dark border">{inv.paymentMethod}</span></td>
+                            <td className="text-end">
+                              <button
+                                type="button"
+                                className="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill"
+                                onClick={() => {
+                                  setSelectedPastInvoice(inv);
+                                  setShowHistoryModal(false);
+                                }}
+                              >
+                                View / Print
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer border-top">
+                <button type="button" className="btn btn-cancel" onClick={() => setShowHistoryModal(false)}>
                   Close
                 </button>
               </div>
@@ -889,7 +1061,15 @@ const StaffBilling = () => {
         </div>
       )}
 
-      {/* Instant Tax Invoice & Print Modal */}
+      {/* Past Invoice Print Modal */}
+      {selectedPastInvoice && (
+        <InvoicePrintModal
+          invoice={selectedPastInvoice}
+          onClose={() => setSelectedPastInvoice(null)}
+        />
+      )}
+
+      {/* Single Invoice Print Modal */}
       {createdInvoice && (
         <InvoicePrintModal
           invoice={createdInvoice}
