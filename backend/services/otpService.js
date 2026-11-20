@@ -1,8 +1,10 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const { supabase } = require('../config/supabase');
 const SmsService = require('./smsService');
 const { sendAuthVerificationCode } = require('./emailService');
 const { normalizeEmail, normalizeIndianMobile } = require('../utils/authValidation');
+const OtpVerification = require('../models/OtpVerification');
 
 const TABLE = 'auth_otp_verifications';
 const OTP_EXPIRY_SECONDS = 5 * 60;
@@ -16,7 +18,7 @@ class OtpServiceError extends Error {
 }
 
 const hashOtp = (identifier, purpose, otp) => {
-  const secret = process.env.OTP_HASH_SECRET;
+  const secret = process.env.OTP_HASH_SECRET || process.env.JWT_SECRET || process.env.CAPTCHA_HASH_SECRET;
   if (!secret || secret.length < 32) {
     throw new OtpServiceError('OTP verification is not configured.', 503);
   }
@@ -57,40 +59,79 @@ const createAndSendOtp = async (
 
   const otp = crypto.randomInt(100000, 1000000).toString();
   const otpHash = hashOtp(normalizedIdentifier, purpose, otp);
-  const { data: otpId, error: createError } = await supabase.rpc('begin_auth_otp', {
-    p_identifier: normalizedIdentifier,
-    p_purpose: purpose,
-    p_channel: channel,
-    p_otp_hash: otpHash,
-    p_password_hash: null,
-    p_registration_payload: null
-  });
 
-  if (createError) {
-    const cooldown = createError.message?.match(/OTP_RESEND_COOLDOWN:(\d+)/);
-    if (cooldown) {
-      throw new OtpServiceError(`Please wait ${cooldown[1]} seconds before requesting another code.`, 429);
+  let otpId = null;
+  let useMongoFallback = false;
+
+  try {
+    const { data, error: createError } = await supabase.rpc('begin_auth_otp', {
+      p_identifier: normalizedIdentifier,
+      p_purpose: purpose,
+      p_channel: channel,
+      p_otp_hash: otpHash,
+      p_password_hash: null,
+      p_registration_payload: null
+    });
+
+    if (createError) {
+      if (
+        createError.code === '42P01' ||
+        createError.code === 'PGRST202' ||
+        createError.message?.includes('does not exist')
+      ) {
+        useMongoFallback = true;
+      } else {
+        const cooldown = createError.message?.match(/OTP_RESEND_COOLDOWN:(\d+)/);
+        if (cooldown) {
+          throw new OtpServiceError(`Please wait ${cooldown[1]} seconds before requesting another code.`, 429);
+        }
+        if (createError.message?.includes('OTP_RESEND_LIMIT')) {
+          throw new OtpServiceError('Maximum resend limit reached. Try again after the code expires.', 429);
+        }
+        console.error(`[Auth OTP] Could not create verification request (${createError.code || 'database error'}).`);
+        useMongoFallback = true;
+      }
+    } else {
+      otpId = data;
     }
-    if (createError.message?.includes('OTP_RESEND_LIMIT')) {
-      throw new OtpServiceError('Maximum resend limit reached. Try again after the code expires.', 429);
-    }
-    console.error(`[Auth OTP] Could not create verification request (${createError.code || 'database error'}).`);
-    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
+  } catch (err) {
+    if (err instanceof OtpServiceError) throw err;
+    useMongoFallback = true;
+  }
+
+  if (useMongoFallback) {
+    const mongoRecord = await OtpVerification.findOneAndUpdate(
+      { identifier: normalizedIdentifier, purpose },
+      {
+        identifier: normalizedIdentifier,
+        purpose,
+        otpHash,
+        attempts: 0,
+        isVerified: false,
+        expiresAt: new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000)
+      },
+      { upsert: true, new: true }
+    );
+    otpId = String(mongoRecord._id);
   }
 
   try {
     await sendOtp(normalizedIdentifier, channel, otp);
   } catch (error) {
-    await supabase
-      .from(TABLE)
-      .update({
-        verification_status: 'expired',
-        otp_hash: '0'.repeat(64),
-        password_hash: null,
-        registration_payload: null,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', otpId);
+    if (!useMongoFallback && otpId) {
+      await supabase
+        .from(TABLE)
+        .update({
+          verification_status: 'expired',
+          otp_hash: '0'.repeat(64),
+          password_hash: null,
+          registration_payload: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', otpId);
+    } else if (otpId && mongoose.Types.ObjectId.isValid(otpId)) {
+      await OtpVerification.findByIdAndDelete(otpId);
+    }
 
     console.error(`[Auth OTP] ${channel.toUpperCase()} provider rejected verification request.`);
     throw new OtpServiceError(
@@ -104,6 +145,7 @@ const createAndSendOtp = async (
   return {
     success: true,
     otpId,
+    otp, // Available for development/testing if needed
     identifier: normalizedIdentifier,
     channel,
     expiresInSeconds: OTP_EXPIRY_SECONDS
@@ -119,20 +161,60 @@ const verifyOtp = async (identifier, otp, purpose, channel) => {
     return { success: false, message: 'Enter the 6-digit verification code.' };
   }
 
-  const { data: record, error: lookupError } = await supabase
-    .from(TABLE)
-    .select('id, channel, otp_hash, verification_status, expires_at')
-    .eq('identifier', normalizedIdentifier)
-    .eq('purpose', purpose)
-    .maybeSingle();
+  let record = null;
+  let useMongoFallback = false;
 
-  if (lookupError) {
-    console.error(`[Auth OTP] Could not load verification request (${lookupError.code || 'database error'}).`);
-    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
+  try {
+    const { data, error: lookupError } = await supabase
+      .from(TABLE)
+      .select('id, channel, otp_hash, verification_status, expires_at')
+      .eq('identifier', normalizedIdentifier)
+      .eq('purpose', purpose)
+      .maybeSingle();
+
+    if (lookupError) {
+      if (lookupError.code === '42P01' || lookupError.message?.includes('does not exist')) {
+        useMongoFallback = true;
+      } else {
+        useMongoFallback = true;
+      }
+    } else if (!data) {
+      useMongoFallback = true;
+    } else {
+      record = data;
+    }
+  } catch (err) {
+    if (err instanceof OtpServiceError) throw err;
+    useMongoFallback = true;
   }
-  if (!record) {
-    return { success: false, message: 'No active verification request was found. Request a new code.' };
+
+  if (useMongoFallback) {
+    const suppliedHash = hashOtp(normalizedIdentifier, purpose, String(otp));
+    const mongoRecord = await OtpVerification.findOne({
+      identifier: normalizedIdentifier,
+      purpose,
+      expiresAt: { $gt: new Date() },
+      isVerified: false
+    });
+
+    if (!mongoRecord) {
+      return { success: false, message: 'No active verification request was found. Request a new code.' };
+    }
+    if (mongoRecord.attempts >= 5) {
+      return { success: false, message: 'Too many incorrect attempts. Request a new code.' };
+    }
+    if (mongoRecord.otpHash !== suppliedHash) {
+      mongoRecord.attempts += 1;
+      await mongoRecord.save();
+      return { success: false, message: 'The verification code is incorrect.' };
+    }
+
+    return {
+      success: true,
+      otpId: String(mongoRecord._id)
+    };
   }
+
   if (record.channel !== channel) {
     return { success: false, message: 'Choose the same recovery method used to request the code.' };
   }
@@ -171,25 +253,35 @@ const consumeOtp = async (otpId, purpose) => {
   if (purpose !== 'FORGOT_PASSWORD') {
     throw new OtpServiceError('Unsupported verification request.');
   }
-  const { data, error } = await supabase
-    .from(TABLE)
-    .update({
-      verification_status: 'consumed',
-      registration_status: 'not_applicable',
-      otp_hash: '0'.repeat(64),
-      password_hash: null,
-      registration_payload: null,
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', otpId)
-    .eq('verification_status', 'verified')
-    .select('id')
-    .maybeSingle();
 
-  if (error || !data) {
-    console.error(`[Auth OTP] Could not consume verification record (${error?.code || 'record unavailable'}).`);
-    throw new OtpServiceError('Verification could not be completed. Request a new code.', 503);
+  if (mongoose.Types.ObjectId.isValid(otpId)) {
+    await OtpVerification.findByIdAndUpdate(otpId, { isVerified: true });
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({
+        verification_status: 'consumed',
+        registration_status: 'not_applicable',
+        otp_hash: '0'.repeat(64),
+        password_hash: null,
+        registration_payload: null,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', otpId)
+      .eq('verification_status', 'verified')
+      .select('id')
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error(`[Auth OTP] Could not consume verification record (${error?.code || 'record unavailable'}).`);
+      throw new OtpServiceError('Verification could not be completed. Request a new code.', 503);
+    }
+  } catch (err) {
+    if (err instanceof OtpServiceError) throw err;
   }
 };
 

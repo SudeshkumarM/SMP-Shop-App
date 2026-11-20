@@ -1,11 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const configuredSupabaseUrl = process.env.SUPABASE_URL?.trim();
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY?.trim();
+const supabaseSecretKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
 
 const missingVariables = [];
 if (!configuredSupabaseUrl) missingVariables.push('SUPABASE_URL');
-if (!supabaseSecretKey) missingVariables.push('SUPABASE_SECRET_KEY');
+if (!supabaseSecretKey) missingVariables.push('SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY');
 
 if (missingVariables.length > 0) {
   throw new Error(

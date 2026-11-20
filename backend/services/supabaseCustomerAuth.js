@@ -125,7 +125,13 @@ const createCustomerIdentity = async ({ profile, password, mongoUserId, customer
       type: 'signup',
       email: profile.email
     });
-    checkSupabaseError(confirmationError, 'customer email confirmation');
+    if (confirmationError) {
+      if (confirmationError.code === 'over_email_send_rate_limit' || confirmationError.status === 429) {
+        console.warn('[Supabase Auth] Email send rate limit reached; user created successfully.');
+      } else {
+        checkSupabaseError(confirmationError, 'customer email confirmation');
+      }
+    }
 
     return created.user;
   } catch (error) {
@@ -248,11 +254,92 @@ const deleteCustomerIdentityByMongoId = async (mongoUserId) => {
   checkSupabaseError(error, 'customer auth rollback');
 };
 
+const syncCustomerProfileToSupabase = async (mongoUserId, { name, username, email, phone }) => {
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('legacy_mongo_id', String(mongoUserId))
+      .maybeSingle();
+
+    if (!profile) return false;
+
+    const updates = { updated_at: new Date().toISOString() };
+    if (name) updates.full_name = name;
+    if (username) updates.username = normalizeUsername(username);
+    if (phone) updates.phone = `+91${normalizeIndianMobile(phone)}`;
+
+    await supabase.from('profiles').update(updates).eq('id', profile.id);
+
+    const custUpdates = {};
+    if (name) custUpdates.full_name = name;
+    if (username) custUpdates.username = normalizeUsername(username);
+    if (phone) custUpdates.phone = normalizeIndianMobile(phone);
+
+    await supabase.from('customers').update(custUpdates).eq('profile_id', profile.id);
+    return true;
+  } catch (err) {
+    console.error('[Supabase Dual-DB Sync] Profile sync failed:', err.message);
+    return false;
+  }
+};
+
+const syncCustomerAddressesToSupabase = async (mongoUserId, addresses) => {
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('legacy_mongo_id', String(mongoUserId))
+      .maybeSingle();
+
+    if (!profile) return false;
+
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('profile_id', profile.id)
+      .maybeSingle();
+
+    if (!customer) return false;
+
+    if (!Array.isArray(addresses)) return false;
+
+    // Remove existing addresses for this customer in Supabase
+    await supabase.from('customer_addresses').delete().eq('customer_id', customer.id);
+
+    if (addresses.length > 0) {
+      const records = addresses.map(addr => ({
+        customer_id: customer.id,
+        title: addr.title || 'Home',
+        street: addr.street || '',
+        city: addr.city || '',
+        state: addr.state || '',
+        pincode: addr.pincode || '',
+        country: addr.country || 'India',
+        is_default: Boolean(addr.isDefault)
+      }));
+
+      const { error: insertErr } = await supabase.from('customer_addresses').insert(records);
+      if (insertErr) {
+        console.error('[Supabase Dual-DB Sync] Address insert failed:', insertErr.message);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('[Supabase Dual-DB Sync] Addresses sync failed:', err.message);
+    return false;
+  }
+};
+
 module.exports = {
   SupabaseCustomerAuthError,
   assertNoCustomerDuplicate,
   createCustomerIdentity,
   authenticateCustomer,
   updateCustomerPassword,
-  deleteCustomerIdentityByMongoId
+  deleteCustomerIdentityByMongoId,
+  syncCustomerProfileToSupabase,
+  syncCustomerAddressesToSupabase
 };

@@ -27,7 +27,8 @@ const {
   createCustomerIdentity,
   authenticateCustomer,
   updateCustomerPassword,
-  deleteCustomerIdentityByMongoId
+  deleteCustomerIdentityByMongoId,
+  syncCustomerProfileToSupabase
 } = require('../services/supabaseCustomerAuth');
 const respondAuthError = (res, error, operation, fallbackMessage) => {
   if (
@@ -678,13 +679,11 @@ const resetPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const updatedInSupabase = user.role === 'customer'
-      ? await updateCustomerPassword(user._id, newPassword)
-      : false;
-    if (!updatedInSupabase) {
-      user.password = newPassword;
-      await user.save();
+    if (user.role === 'customer') {
+      await updateCustomerPassword(user._id, newPassword);
     }
+    user.password = newPassword;
+    await user.save();
     await consumeOtp(verification.otpId, 'FORGOT_PASSWORD');
 
     return res.status(200).json({
@@ -744,10 +743,10 @@ const resetPasswordWithToken = async (req, res) => {
       });
     }
 
-    const updatedInSupabase = user.role === 'customer'
-      ? await updateCustomerPassword(user._id, newPassword)
-      : false;
-    if (!updatedInSupabase) user.password = newPassword;
+    if (user.role === 'customer') {
+      await updateCustomerPassword(user._id, newPassword);
+    }
+    user.password = newPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
@@ -851,6 +850,12 @@ const updateProfile = async (req, res) => {
         { userId: user._id },
         { fullName: user.name, username: user.username, email: user.email, phone: user.phone }
       );
+      await syncCustomerProfileToSupabase(user._id, {
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        phone: user.phone
+      });
     } else if (user.role === 'staff') {
       await Staff.findOneAndUpdate(
         { userId: user._id },
@@ -981,12 +986,11 @@ const changePassword = async (req, res) => {
       });
     }
 
-    if (supabaseCustomerAuthenticated) {
+    if (user.role === 'customer') {
       await updateCustomerPassword(user._id, newPassword);
-    } else {
-      user.password = newPassword;
-      await user.save();
     }
+    user.password = newPassword;
+    await user.save();
 
     res.status(200).json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
@@ -1008,5 +1012,6 @@ module.exports = {
   getMe,
   updateProfile,
   verifyEmailChange,
-  changePassword
+  changePassword,
+  generateToken
 };

@@ -174,4 +174,8 @@ const seedCleanDatabase = async () => {
   }
 };
 
-seedCleanDatabase();
+if (require.main === module) {
+  seedCleanDatabase();
+}
+
+module.exports = seedCleanDatabase;

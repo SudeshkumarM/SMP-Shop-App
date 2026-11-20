@@ -139,4 +139,8 @@ const setupOwner = async () => {
   }
 };
 
-setupOwner();
+if (require.main === module) {
+  setupOwner();
+}
+
+module.exports = setupOwner;

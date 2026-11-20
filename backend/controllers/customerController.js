@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const Product = require('../models/Product');
+const { syncCustomerAddressesToSupabase } = require('../services/supabaseCustomerAuth');
 
 /**
  * @desc    Get Customer Wishlist
@@ -92,6 +93,9 @@ const addAddress = async (req, res) => {
   try {
     const { title, street, city, state, pincode, isDefault } = req.body;
     const customer = await Customer.findOne({ userId: req.user._id });
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer record not found' });
+    }
 
     if (!street || !city || !state || !pincode) {
       return res.status(400).json({ success: false, message: 'Please provide all address details' });
@@ -111,7 +115,52 @@ const addAddress = async (req, res) => {
     });
 
     await customer.save();
+    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
     res.status(201).json({ success: true, message: 'Address saved successfully', addresses: customer.addresses });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Update Existing Address
+ * @route   PUT /api/customer/addresses/:addressId
+ * @access  Private (Customer)
+ */
+const updateAddress = async (req, res) => {
+  try {
+    const { title, street, city, state, pincode, country, isDefault } = req.body;
+    const customer = await Customer.findOne({ userId: req.user._id });
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer record not found' });
+    }
+
+    const address = customer.addresses.id(req.params.addressId);
+    if (!address) {
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+
+    if (street !== undefined) address.street = street;
+    if (city !== undefined) address.city = city;
+    if (state !== undefined) address.state = state;
+    if (pincode !== undefined) address.pincode = pincode;
+    if (title !== undefined) address.title = title;
+    if (country !== undefined) address.country = country;
+
+    if (isDefault) {
+      customer.addresses.forEach(addr => {
+        if (addr._id.toString() !== req.params.addressId) {
+          addr.isDefault = false;
+        }
+      });
+      address.isDefault = true;
+    } else if (isDefault === false) {
+      address.isDefault = false;
+    }
+
+    await customer.save();
+    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
+    res.status(200).json({ success: true, message: 'Address updated successfully', addresses: customer.addresses });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -125,8 +174,12 @@ const addAddress = async (req, res) => {
 const deleteAddress = async (req, res) => {
   try {
     const customer = await Customer.findOne({ userId: req.user._id });
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer record not found' });
+    }
     customer.addresses.pull(req.params.addressId);
     await customer.save();
+    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
     res.status(200).json({ success: true, message: 'Address deleted', addresses: customer.addresses });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -139,5 +192,6 @@ module.exports = {
   removeFromWishlist,
   getAddresses,
   addAddress,
+  updateAddress,
   deleteAddress
 };

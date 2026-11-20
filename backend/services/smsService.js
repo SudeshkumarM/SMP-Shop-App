@@ -13,6 +13,9 @@ class SmsService {
       throw new Error('A valid Indian mobile number is required.');
     }
     if (!authKey || !templateId) {
+      if (process.env.MOCK_SMS === 'true') {
+        return { accepted: true, simulated: true };
+      }
       throw new Error('SMS provider is not configured.');
     }
     if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(otpVariable)) {
