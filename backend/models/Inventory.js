@@ -84,5 +84,7 @@ const inventorySchema = new mongoose.Schema({
 });
 
 inventorySchema.index({ shopId: 1, productId: 1 }, { unique: true });
+inventorySchema.index({ shopId: 1, currentStock: 1 });
+inventorySchema.index({ branchId: 1, productId: 1 });
 
 module.exports = mongoose.model('Inventory', inventorySchema);

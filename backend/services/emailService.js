@@ -43,8 +43,9 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
 const sendAuthVerificationCode = async ({ to, code }) => {
   const mailer = getTransporter();
-  if (!mailer) {
-    throw new Error('Email provider is not configured.');
+  if (!mailer || process.env.MOCK_EMAIL === 'true') {
+    console.log(`[EMAIL VERIFICATION CODE] To: ${to} | Code: ${code} (Simulated/Dev Mode)`);
+    return { success: true, simulated: true };
   }
 
   try {

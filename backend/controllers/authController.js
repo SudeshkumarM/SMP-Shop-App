@@ -252,10 +252,9 @@ const loginCustomer = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Your account has been deactivated. Please contact support.' });
     }
 
-    user.lastLogin = new Date();
-    await user.save();
+    User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
-    const customer = await Customer.findOne({ userId: user._id });
+    const customer = await Customer.findOne({ userId: user._id }).lean();
     const token = generateToken(user);
 
     // Welcome greeting
@@ -333,8 +332,7 @@ const loginStaff = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Staff account has been deactivated. Please contact your Admin.' });
     }
 
-    user.lastLogin = new Date();
-    await user.save();
+    User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
     const token = generateToken(user);
     const welcomeGreeting = user.name.toLowerCase().includes('kumar')
@@ -418,8 +416,7 @@ const loginAdmin = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin account has been deactivated.' });
     }
 
-    user.lastLogin = new Date();
-    await user.save();
+    User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
     const token = generateToken(user);
 
@@ -570,10 +567,9 @@ const loginOwner = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Owner account has been deactivated.' });
     }
 
-    user.lastLogin = new Date();
-    await user.save();
+    User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
-    const owner = await Owner.findOne({ userId: user._id });
+    const owner = await Owner.findOne({ userId: user._id }).lean();
     const token = generateToken(user);
 
     res.status(200).json({

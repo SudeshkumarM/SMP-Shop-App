@@ -122,4 +122,10 @@ userSchema.methods.getResetPasswordToken = function () {
   return resetToken;
 };
 
+userSchema.index({ role: 1, isActive: 1 });
+userSchema.index({ email: 1, role: 1 });
+userSchema.index({ username: 1, role: 1 });
+userSchema.index({ phone: 1, role: 1 });
+userSchema.index({ shopId: 1, branchId: 1, role: 1 });
+
 module.exports = mongoose.model('User', userSchema);

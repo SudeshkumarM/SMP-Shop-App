@@ -10,7 +10,7 @@
     "test:auth": "node --test test/authValidation.test.js test/smsService.test.js test/registrationOtpPolicy.test.js test/supabaseCustomerAuth.test.js",
     "test:dual-db": "node test/verifyDualDatabaseArchitecture.js",
     "test:e2e": "node test_e2e_flow.js",
-    "test:load": "node test_load_concurrency.js"
+    "test:load": "node test/loadTestConcurrency.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2",

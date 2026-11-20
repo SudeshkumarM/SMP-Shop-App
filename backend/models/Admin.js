@@ -67,4 +67,7 @@ const adminSchema = new mongoose.Schema({
   timestamps: true
 });
 
+adminSchema.index({ adminId: 1, isActive: 1 });
+adminSchema.index({ shopId: 1, isActive: 1 });
+
 module.exports = mongoose.model('Admin', adminSchema);

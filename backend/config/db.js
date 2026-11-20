@@ -45,15 +45,16 @@ const connectDB = async () => {
   const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smp_db';
   const isVercel = Boolean(process.env.VERCEL);
   const poolOptions = {
-    serverSelectionTimeoutMS: 5000,
-    maxPoolSize: isVercel ? 10 : 100,
-    minPoolSize: isVercel ? 1 : 10,
-    socketTimeoutMS: 45000
+    serverSelectionTimeoutMS: 30000,
+    maxPoolSize: isVercel ? 15 : 200,
+    minPoolSize: isVercel ? 2 : 20,
+    socketTimeoutMS: 60000,
+    maxIdleTimeMS: 30000
   };
 
   const connect = async () => {
-    if (connectionCache.connection?.connection?.readyState === 1) {
-      return connectionCache.connection;
+    if (mongoose.connection.readyState === 1) {
+      return mongoose;
     }
 
     if (!connectionCache.promise) {
@@ -64,9 +65,9 @@ const connectDB = async () => {
       connectionCache.connection = await connectionCache.promise;
       if (!connectionCache.hasLogged) {
         connectionCache.hasLogged = true;
-        console.log(`[Database] MongoDB Connected: ${connectionCache.connection.connection.host}/${connectionCache.connection.connection.name}`);
+        console.log(`[Database] MongoDB Connected: ${mongoose.connection.host}/${mongoose.connection.name}`);
       }
-      return connectionCache.connection;
+      return mongoose;
     } catch (error) {
       connectionCache.promise = null;
       throw error;

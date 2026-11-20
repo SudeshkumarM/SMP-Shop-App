@@ -98,4 +98,7 @@ const staffSchema = new mongoose.Schema({
   timestamps: true
 });
 
+staffSchema.index({ staffId: 1, isActive: 1 });
+staffSchema.index({ shopId: 1, branchId: 1, isActive: 1 });
+
 module.exports = mongoose.model('Staff', staffSchema);

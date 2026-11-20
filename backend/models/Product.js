@@ -143,5 +143,9 @@ const productSchema = new mongoose.Schema({
 productSchema.index({ shopId: 1, sku: 1 }, { unique: true });
 productSchema.index({ shopId: 1, barcode: 1 });
 productSchema.index({ name: 'text', description: 'text', brand: 'text' });
+productSchema.index({ isActive: 1, category: 1, createdAt: -1 });
+productSchema.index({ isActive: 1, isFeatured: 1 });
+productSchema.index({ isActive: 1, isTrending: 1 });
+productSchema.index({ shopId: 1, availableQuantity: 1 });
 
 module.exports = mongoose.model('Product', productSchema);

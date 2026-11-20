@@ -68,5 +68,7 @@ const cartSchema = new mongoose.Schema({
 
 cartSchema.index({ userId: 1 });
 cartSchema.index({ guestSessionId: 1 });
+cartSchema.index({ userId: 1, shopId: 1 });
+cartSchema.index({ guestSessionId: 1, shopId: 1 });
 
 module.exports = mongoose.model('Cart', cartSchema);

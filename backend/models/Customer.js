@@ -85,4 +85,7 @@ const customerSchema = new mongoose.Schema({
   timestamps: true
 });
 
+customerSchema.index({ email: 1, phone: 1 });
+customerSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('Customer', customerSchema);

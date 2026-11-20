@@ -1,3 +1,5 @@
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '128';
+
 const dns = require('dns');
 if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder('ipv4first');
@@ -10,7 +12,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
 const dotenv = require('dotenv');
-const rateLimit = require('express-rate-limit');
+const { apiRateLimiter } = require('./middleware/rateLimiter');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -39,6 +41,9 @@ const settingsRoutes = require('./routes/settingsRoutes');
 
 const app = express();
 const server = http.createServer(app);
+server.requestTimeout = 120000;
+server.headersTimeout = 120000;
+server.keepAliveTimeout = 65000;
 const isVercel = Boolean(process.env.VERCEL);
 if (isVercel) {
   app.set('trust proxy', 1);
@@ -94,6 +99,8 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+app.use('/api', apiRateLimiter);
 
 app.use('/api', (req, res, next) => {
   connectDB().then(() => next()).catch(next);
@@ -187,7 +194,7 @@ server.on('error', (err) => {
 });
 
 if (require.main === module && !isVercel) {
-  server.listen(PORT, () => {
+  server.listen(PORT, 2048, () => {
     console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   });
 }

@@ -362,7 +362,8 @@ async function runVerification() {
     let passed = false;
     let details = '';
     if (ownerUser) {
-      const pwMatch = await ownerUser.matchPassword('Owner@SMP2026!');
+      const targetPassword = process.env.OWNER_INITIAL_PASSWORD || 'SMPOfficial@2026';
+      const pwMatch = await ownerUser.matchPassword(targetPassword);
       const ownerDoc = await Owner.findOne({ userId: ownerUser._id });
       passed = pwMatch && !!ownerDoc;
       details = `Master Owner verified in MongoDB: username=${ownerUser.username}, email=${ownerUser.email}, phone=${ownerUser.phone}, ownerId=${ownerDoc ? ownerDoc.ownerId : 'OWN-001'}. Password verification: ${pwMatch}.`;
