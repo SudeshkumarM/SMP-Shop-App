@@ -10,6 +10,7 @@ const OwnerLogin = () => {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -30,7 +31,7 @@ const OwnerLogin = () => {
     }
 
     setLoading(true);
-    const result = await login('owner', email.trim(), password);
+    const result = await login('owner', email.trim(), password, rememberMe);
     setLoading(false);
 
     if (result.success) {
@@ -56,14 +57,14 @@ const OwnerLogin = () => {
 
             <form onSubmit={handleSubmit} autoComplete="off">
               <div className="mb-3">
-                <label className="form-label small fw-semibold text-white">Username or Registered Email</label>
+                <label className="form-label small fw-semibold text-white">Username, Email, or Mobile Number</label>
                 <div className="input-group">
                   <span className="input-group-text"><i className="bi bi-person-fill text-secondary"></i></span>
                   <input
                     type="text"
                     required
                     autoComplete="off"
-                    placeholder="Enter owner username or registered email"
+                    placeholder="Enter your username, email, or mobile number"
                     className="form-control"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -83,13 +84,26 @@ const OwnerLogin = () => {
                   <input
                     type="password"
                     required
-                    autoComplete="new-password"
-                    placeholder="Enter owner password"
+                    autoComplete="off"
+                    placeholder="Enter your password"
                     className="form-control"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="mb-4 form-check">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  id="ownerRememberCheck"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <label className="form-check-label small text-muted" htmlFor="ownerRememberCheck">
+                  Remember Me
+                </label>
               </div>
 
               <button

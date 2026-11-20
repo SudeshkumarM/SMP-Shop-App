@@ -6,7 +6,7 @@ const CustomerHelp = () => {
 
   const topics = [
     { id: 'registration', title: 'Registration Help', icon: 'bi-person-plus' },
-    { id: 'otp', title: 'OTP Problems', icon: 'bi-shield-check' },
+    { id: 'verification', title: 'Recovery Code Help', icon: 'bi-shield-check' },
     { id: 'login', title: 'Login Help', icon: 'bi-box-arrow-in-right' },
     { id: 'shopping', title: 'Shopping Help', icon: 'bi-bag-check' },
     { id: 'payment', title: 'Payment Help', icon: 'bi-credit-card' },
@@ -66,40 +66,39 @@ const CustomerHelp = () => {
                     <li className="list-group-item border-0 ps-0">Navigate to the <Link to="/customer/register" className="fw-semibold text-primary">Registration Page</Link>.</li>
                     <li className="list-group-item border-0 ps-0">Enter your <strong>Full Name</strong>, unique <strong>Username</strong>, <strong>Email Address</strong>, and <strong>10-digit Indian Mobile Number</strong>.</li>
                     <li className="list-group-item border-0 ps-0">Set a secure password of at least 6 characters and confirm it.</li>
-                    <li className="list-group-item border-0 ps-0">Click <strong>Continue to Mobile OTP Verification</strong>. A 6-digit OTP will be dispatched to your phone.</li>
-                    <li className="list-group-item border-0 ps-0">Enter the OTP and confirm to complete your registration!</li>
+                    <li className="list-group-item border-0 ps-0">Submit your details, confirm your email using the link sent to you, then sign in from the Customer Login page.</li>
                   </ol>
                   <div className="alert alert-info py-2 small">
-                    <i className="bi bi-info-circle me-1"></i> Note: Only mobile number OTP verification is mandatory. No email verification code is required.
+                    <i className="bi bi-info-circle me-1"></i> Registration does not use CAPTCHA or mobile OTP. Your phone is saved as contact information and remains unverified.
                   </div>
                 </div>
               )}
 
-              {activeTab === 'otp' && (
+              {activeTab === 'verification' && (
                 <div>
-                  <h4 className="fw-bold text-primary mb-3"><i className="bi bi-shield-check me-2"></i>Troubleshooting OTP Verification</h4>
-                  <div className="accordion" id="otpAccordion">
+                  <h4 className="fw-bold text-primary mb-3"><i className="bi bi-shield-check me-2"></i>Password Recovery Code Help</h4>
+                  <div className="accordion" id="verificationAccordion">
                     <div className="accordion-item mb-2 border rounded">
                       <h2 className="accordion-header">
-                        <button className="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#otp1">
-                          Did not receive the 6-digit SMS OTP?
+                        <button className="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#recoveryCode1">
+                          Not receiving a password recovery code?
                         </button>
                       </h2>
-                      <div id="otp1" className="accordion-collapse collapse show">
+                      <div id="recoveryCode1" className="accordion-collapse collapse show">
                         <div className="accordion-body text-muted small">
-                          Please ensure that your 10-digit phone number is entered correctly without +91 or leading zeros. Check that your cellular network has good reception. If the code does not arrive within 45 seconds, the <strong>Resend OTP</strong> button will become active.
+                          Check the email address or mobile number selected for password recovery, and wait briefly before requesting another code. Registration itself does not send an OTP.
                         </div>
                       </div>
                     </div>
                     <div className="accordion-item mb-2 border rounded">
                       <h2 className="accordion-header">
-                        <button className="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#otp2">
-                          OTP Expired message?
+                        <button className="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#recoveryCode2">
+                          Are mobile numbers verified during registration?
                         </button>
                       </h2>
-                      <div id="otp2" className="accordion-collapse collapse">
+                      <div id="recoveryCode2" className="accordion-collapse collapse">
                         <div className="accordion-body text-muted small">
-                          For security reasons, OTP codes expire after 5 minutes. If your code expired, click <strong>Resend OTP</strong> on the verification screen to receive a fresh verification code.
+                          No. Your mobile number is stored as contact information and remains unverified. A password recovery code is separate from registration.
                         </div>
                       </div>
                     </div>
@@ -115,7 +114,7 @@ const CustomerHelp = () => {
                     <div className="col-md-6">
                       <div className="p-3 border rounded bg-light">
                         <div className="fw-bold text-dark mb-1"><i className="bi bi-person me-2 text-primary"></i>Method 1: Username</div>
-                        <div className="small text-muted">Enter your registered username (e.g. <code>kumar_customer</code>) and your secret password.</div>
+                        <div className="small text-muted">Enter your registered username (e.g. <code>kumar_customer</code>) or your mobile number, then your password.</div>
                       </div>
                     </div>
                     <div className="col-md-6">

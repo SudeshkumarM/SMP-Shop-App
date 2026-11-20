@@ -1,157 +1,201 @@
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
-const OtpVerification = require('../models/OtpVerification');
+const { supabase } = require('../config/supabase');
+const SmsService = require('./smsService');
+const { sendAuthVerificationCode } = require('./emailService');
+const { normalizeEmail, normalizeIndianMobile } = require('../utils/authValidation');
 
-const OTP_EXPIRY_MINUTES = 5;
-const MAX_ATTEMPTS = 5;
-const RESEND_COOLDOWN_SECONDS = 45;
-const MAX_RESENDS = 4;
+const TABLE = 'auth_otp_verifications';
+const OTP_EXPIRY_SECONDS = 5 * 60;
 
-/**
- * Generate a 6-digit numeric OTP
- */
-const generateOtp = () => {
-  return crypto.randomInt(100000, 999999).toString();
+class OtpServiceError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.name = 'OtpServiceError';
+    this.statusCode = statusCode;
+  }
+}
+
+const hashOtp = (identifier, purpose, otp) => {
+  const secret = process.env.OTP_HASH_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new OtpServiceError('OTP verification is not configured.', 503);
+  }
+
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`${purpose}:${identifier}:${otp}`)
+    .digest('hex');
 };
 
-/**
- * Send OTP via SMS gateway or mock console delivery
- */
-const sendSms = async (phone, otp, purpose) => {
-  const isMock = process.env.MOCK_SMS === 'true' || !process.env.SMS_GATEWAY_API_KEY;
-
-  if (isMock) {
-    console.log('========================================================');
-    console.log(`[SMS GATEWAY - MOCK] To: ${phone}`);
-    console.log(`[SMS GATEWAY - MOCK] OTP for ${purpose}: ${otp}`);
-    console.log(`[SMS GATEWAY - MOCK] Valid for ${OTP_EXPIRY_MINUTES} minutes.`);
-    console.log('========================================================');
-    return { success: true, simulated: true, otp };
-  }
-
-  // Production SMS Gateway integration (e.g. Fast2SMS / Twilio / MSG91)
-  try {
-    // If external SMS provider credentials are provided, invoke provider HTTP API
-    console.log(`[SMS GATEWAY] Dispatching live SMS to ${phone}...`);
-    return { success: true, simulated: false };
-  } catch (error) {
-    console.error('[SMS GATEWAY ERROR]', error.message);
-    throw new Error('Failed to send SMS OTP: ' + error.message);
-  }
+const normalizeIdentifier = (identifier, channel) => {
+  if (channel === 'email') return normalizeEmail(identifier);
+  return normalizeIndianMobile(identifier);
 };
 
-/**
- * Create and send OTP for an identifier (phone or email)
- */
-const createAndSendOtp = async (identifier, purpose) => {
-  // Check if an existing unverified OTP exists
-  const existing = await OtpVerification.findOne({
-    identifier,
-    purpose,
-    isVerified: false
-  }).sort({ createdAt: -1 });
+const sendOtp = async (identifier, channel, otp) => {
+  if (channel === 'sms') {
+    return SmsService.sendVerificationOtp({ phone: identifier, otp });
+  }
+  return sendAuthVerificationCode({ to: identifier, code: otp });
+};
 
-  if (existing) {
-    const elapsedSeconds = (Date.now() - new Date(existing.lastResentAt).getTime()) / 1000;
-    if (elapsedSeconds < RESEND_COOLDOWN_SECONDS) {
-      const waitTime = Math.ceil(RESEND_COOLDOWN_SECONDS - elapsedSeconds);
-      throw new Error(`Please wait ${waitTime} seconds before requesting a new OTP.`);
-    }
-
-    if (existing.resendCount >= MAX_RESENDS) {
-      throw new Error('Maximum OTP resend limit reached. Please try again after 15 minutes.');
-    }
+const createAndSendOtp = async (
+  identifier,
+  purpose,
+  { channel } = {}
+) => {
+  const normalizedIdentifier = normalizeIdentifier(identifier, channel);
+  if (!normalizedIdentifier) {
+    throw new OtpServiceError(`A valid ${channel === 'email' ? 'email address' : 'mobile number'} is required.`);
+  }
+  if (purpose !== 'FORGOT_PASSWORD') {
+    throw new OtpServiceError('Unsupported verification request.');
+  }
+  if (!['sms', 'email'].includes(channel)) {
+    throw new OtpServiceError('Choose a valid recovery method.');
   }
 
-  const rawOtp = generateOtp();
-  const salt = await bcrypt.genSalt(8);
-  const otpHash = await bcrypt.hash(rawOtp, salt);
-
-  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
-
-  // Invalidate any old ones
-  await OtpVerification.deleteMany({ identifier, purpose });
-
-  const record = await OtpVerification.create({
-    identifier,
-    purpose,
-    otpHash,
-    otpDev: process.env.NODE_ENV !== 'production' || process.env.MOCK_SMS === 'true' ? rawOtp : undefined,
-    expiresAt,
-    lastResentAt: new Date(),
-    resendCount: existing ? existing.resendCount + 1 : 0
+  const otp = crypto.randomInt(100000, 1000000).toString();
+  const otpHash = hashOtp(normalizedIdentifier, purpose, otp);
+  const { data: otpId, error: createError } = await supabase.rpc('begin_auth_otp', {
+    p_identifier: normalizedIdentifier,
+    p_purpose: purpose,
+    p_channel: channel,
+    p_otp_hash: otpHash,
+    p_password_hash: null,
+    p_registration_payload: null
   });
 
-  await sendSms(identifier, rawOtp, purpose);
+  if (createError) {
+    const cooldown = createError.message?.match(/OTP_RESEND_COOLDOWN:(\d+)/);
+    if (cooldown) {
+      throw new OtpServiceError(`Please wait ${cooldown[1]} seconds before requesting another code.`, 429);
+    }
+    if (createError.message?.includes('OTP_RESEND_LIMIT')) {
+      throw new OtpServiceError('Maximum resend limit reached. Try again after the code expires.', 429);
+    }
+    console.error(`[Auth OTP] Could not create verification request (${createError.code || 'database error'}).`);
+    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
+  }
+
+  try {
+    await sendOtp(normalizedIdentifier, channel, otp);
+  } catch (error) {
+    await supabase
+      .from(TABLE)
+      .update({
+        verification_status: 'expired',
+        otp_hash: '0'.repeat(64),
+        password_hash: null,
+        registration_payload: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', otpId);
+
+    console.error(`[Auth OTP] ${channel.toUpperCase()} provider rejected verification request.`);
+    throw new OtpServiceError(
+      channel === 'sms'
+        ? 'Unable to send SMS at this time. Check provider configuration and try again.'
+        : 'Unable to send email at this time. Check email provider configuration and try again.',
+      502
+    );
+  }
 
   return {
     success: true,
-    message: `OTP sent successfully to ${identifier}`,
-    expiresInMinutes: OTP_EXPIRY_MINUTES,
-    // Return OTP in dev object for testing ease
-    devOtp: process.env.MOCK_SMS === 'true' ? rawOtp : undefined
+    otpId,
+    identifier: normalizedIdentifier,
+    channel,
+    expiresInSeconds: OTP_EXPIRY_SECONDS
   };
 };
 
-/**
- * Verify OTP entered by customer
- */
-const verifyOtp = async (identifier, otp, purpose) => {
-  const record = await OtpVerification.findOne({
-    identifier,
-    purpose,
-    isVerified: false
-  }).sort({ createdAt: -1 });
+const verifyOtp = async (identifier, otp, purpose, channel) => {
+  if (purpose !== 'FORGOT_PASSWORD') {
+    throw new OtpServiceError('Unsupported verification request.');
+  }
+  const normalizedIdentifier = normalizeIdentifier(identifier, channel);
+  if (!normalizedIdentifier || !/^\d{6}$/.test(String(otp || ''))) {
+    return { success: false, message: 'Enter the 6-digit verification code.' };
+  }
 
+  const { data: record, error: lookupError } = await supabase
+    .from(TABLE)
+    .select('id, channel, otp_hash, verification_status, expires_at')
+    .eq('identifier', normalizedIdentifier)
+    .eq('purpose', purpose)
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error(`[Auth OTP] Could not load verification request (${lookupError.code || 'database error'}).`);
+    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
+  }
   if (!record) {
-    return {
-      success: false,
-      message: 'No active OTP request found. Please request a new OTP.'
-    };
+    return { success: false, message: 'No active verification request was found. Request a new code.' };
+  }
+  if (record.channel !== channel) {
+    return { success: false, message: 'Choose the same recovery method used to request the code.' };
   }
 
-  // Check expiration
-  if (new Date() > new Date(record.expiresAt)) {
-    await OtpVerification.findByIdAndDelete(record._id);
-    return {
-      success: false,
-      message: 'OTP has expired. Please request a new OTP.'
-    };
+  const suppliedHash = hashOtp(normalizedIdentifier, purpose, String(otp));
+  const { data: verificationStatus, error: verifyError } = await supabase.rpc('verify_auth_otp', {
+    p_otp_id: record.id,
+    p_otp_hash: suppliedHash
+  });
+
+  if (verifyError) {
+    console.error(`[Auth OTP] Could not verify code (${verifyError.code || 'database error'}).`);
+    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
   }
 
-  // Check attempts
-  if (record.attempts >= MAX_ATTEMPTS) {
-    await OtpVerification.findByIdAndDelete(record._id);
+  if (verificationStatus !== 'verified') {
+    const messages = {
+      not_found: 'No active verification request was found. Request a new code.',
+      consumed: 'This verification code has already been used.',
+      expired: 'The verification code has expired. Request a new code.',
+      locked: 'Too many incorrect attempts. Request a new code.'
+    };
     return {
       success: false,
-      message: 'Too many incorrect attempts. This OTP has been invalidated.'
+      message: messages[verificationStatus] || 'The verification code is incorrect.'
     };
   }
-
-  // Verify
-  const isMatch = await bcrypt.compare(otp.toString().trim(), record.otpHash);
-
-  if (!isMatch) {
-    record.attempts += 1;
-    await record.save();
-    const remaining = MAX_ATTEMPTS - record.attempts;
-    return {
-      success: false,
-      message: `Invalid OTP. ${remaining} attempt(s) remaining.`
-    };
-  }
-
-  // Mark verified
-  record.isVerified = true;
-  await record.save();
 
   return {
     success: true,
-    message: 'OTP verified successfully.'
+    otpId: record.id
   };
+};
+
+const consumeOtp = async (otpId, purpose) => {
+  if (purpose !== 'FORGOT_PASSWORD') {
+    throw new OtpServiceError('Unsupported verification request.');
+  }
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({
+      verification_status: 'consumed',
+      registration_status: 'not_applicable',
+      otp_hash: '0'.repeat(64),
+      password_hash: null,
+      registration_payload: null,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', otpId)
+    .eq('verification_status', 'verified')
+    .select('id')
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error(`[Auth OTP] Could not consume verification record (${error?.code || 'record unavailable'}).`);
+    throw new OtpServiceError('Verification could not be completed. Request a new code.', 503);
+  }
 };
 
 module.exports = {
+  OtpServiceError,
   createAndSendOtp,
-  verifyOtp
+  verifyOtp,
+  consumeOtp
 };

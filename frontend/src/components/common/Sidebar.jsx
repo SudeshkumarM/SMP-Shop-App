@@ -98,7 +98,7 @@ const Sidebar = ({ module, mobileOpen = false, onClose }) => {
 
   return (
     <aside
-      className={`d-flex flex-column flex-shrink-0 p-3 shadow-sm ${mobileOpen ? 'd-flex' : 'd-none d-md-flex'}`}
+      className={`d-flex flex-column flex-shrink-0 p-3 shadow-sm ${module === 'customer' ? 'customer-sidebar' : 'portal-sidebar'} ${mobileOpen ? 'portal-sidebar-open' : ''}`}
       style={{
         width: '260px',
         height: '100vh',
@@ -123,8 +123,9 @@ const Sidebar = ({ module, mobileOpen = false, onClose }) => {
         {onClose && (
           <button
             type="button"
-            className="btn btn-sm btn-outline-secondary d-md-none text-white border-0"
+            className="btn btn-sm btn-outline-secondary d-lg-none text-white border-0"
             onClick={onClose}
+            aria-label="Close navigation"
           >
             <i className="bi bi-x-lg"></i>
           </button>

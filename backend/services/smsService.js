@@ -3,6 +3,54 @@
  * Dispatches transactional bill notifications and OTPs via configured SMS gateway with audit tracking.
  */
 class SmsService {
+  static async sendVerificationOtp({ phone, otp }) {
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const authKey = process.env.MSG91_AUTH_KEY;
+    const templateId = process.env.MSG91_TEMPLATE_ID;
+    const otpVariable = process.env.MSG91_OTP_VARIABLE || 'OTP';
+
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      throw new Error('A valid Indian mobile number is required.');
+    }
+    if (!authKey || !templateId) {
+      throw new Error('SMS provider is not configured.');
+    }
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(otpVariable)) {
+      throw new Error('SMS OTP template variable is invalid.');
+    }
+
+    let response;
+    try {
+      response = await fetch('https://control.msg91.com/api/v5/flow/', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          authkey: authKey,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          template_id: templateId,
+          short_url: '0',
+          recipients: [{
+            mobiles: `91${cleanPhone}`,
+            [otpVariable]: otp
+          }]
+        }),
+        signal: AbortSignal.timeout(10000)
+      });
+    } catch {
+      throw new Error('SMS provider could not be reached.');
+    }
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || String(result.type || '').toLowerCase() !== 'success') {
+      console.error(`[SmsService] MSG91 rejected OTP request (HTTP ${response.status}).`);
+      throw new Error('SMS provider rejected the OTP request.');
+    }
+
+    return { accepted: true };
+  }
+
   /**
    * Send SMS bill notification with delivery confirmation
    * @param {Object} options

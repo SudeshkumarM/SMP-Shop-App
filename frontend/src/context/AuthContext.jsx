@@ -4,20 +4,24 @@ import { useToast } from './ToastContext';
 
 const AuthContext = createContext();
 
+const getSavedToken = () =>
+  localStorage.getItem('smp_token') || sessionStorage.getItem('smp_token');
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('smp_token') || null);
+  const [token, setToken] = useState(getSavedToken());
   const [loading, setLoading] = useState(true);
   const { addToast } = useToast();
 
   const loadUser = async () => {
-    const savedToken = localStorage.getItem('smp_token');
+    const savedToken = getSavedToken();
     if (!savedToken) {
       setUser(null);
       setLoading(false);
       return;
     }
 
+    setToken(savedToken);
     try {
       const res = await api.get('/auth/me');
       if (res.data.success) {
@@ -35,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, []);
 
-  const login = async (role, identifier, password) => {
+  const login = async (role, identifier, password, rememberMe = false) => {
     let endpoint = '/auth/customer/login';
     let payload = { identifier, username: identifier, email: identifier, password };
 
@@ -54,15 +58,20 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post(endpoint, payload);
       if (res.data.success) {
         const { token, user, welcomeMessage } = res.data;
-        localStorage.setItem('smp_token', token);
+        localStorage.removeItem('smp_token');
+        sessionStorage.removeItem('smp_token');
+        (rememberMe ? localStorage : sessionStorage).setItem('smp_token', token);
         localStorage.setItem('smp_role', user.role);
         setToken(token);
         setUser(user);
         addToast(welcomeMessage || `Welcome ${user.name}!`, 'success');
         return { success: true, user, role: user.role };
       }
+      const message = res.data.message || 'Login could not be completed.';
+      addToast(message, 'error');
+      return { success: false, message };
     } catch (error) {
-      const msg = error.response?.data?.message || 'Invalid Username/Email or Password.';
+      const msg = error.response?.data?.message || 'Login could not be completed. Please try again.';
       addToast(msg, 'error');
       return { success: false, message: msg };
     }
@@ -71,6 +80,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     const currentRole = user?.role || localStorage.getItem('smp_role') || 'customer';
     localStorage.removeItem('smp_token');
+    sessionStorage.removeItem('smp_token');
     localStorage.removeItem('smp_role');
     setToken(null);
     setUser(null);

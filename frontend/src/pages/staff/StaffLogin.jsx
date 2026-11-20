@@ -10,6 +10,7 @@ const StaffLogin = () => {
 
   const [staffIdOrEmail, setStaffIdOrEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -20,7 +21,7 @@ const StaffLogin = () => {
     }
 
     setLoading(true);
-    const result = await login('staff', staffIdOrEmail.trim(), password);
+    const result = await login('staff', staffIdOrEmail.trim(), password, rememberMe);
     setLoading(false);
 
     if (result.success) {
@@ -53,7 +54,7 @@ const StaffLogin = () => {
                     type="text"
                     required
                     autoComplete="off"
-                    placeholder="Enter staff username, email or ID"
+                    placeholder="Enter your username or email"
                     className="form-control"
                     value={staffIdOrEmail}
                     onChange={(e) => setStaffIdOrEmail(e.target.value)}
@@ -73,13 +74,26 @@ const StaffLogin = () => {
                   <input
                     type="password"
                     required
-                    autoComplete="new-password"
+                    autoComplete="off"
                     placeholder="Enter your password"
                     className="form-control"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="mb-4 form-check">
+                <input
+                  type="checkbox"
+                  className="form-check-input"
+                  id="staffRememberCheck"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <label className="form-check-label small text-muted" htmlFor="staffRememberCheck">
+                  Remember Me
+                </label>
               </div>
 
               <button

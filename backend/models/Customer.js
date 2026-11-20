@@ -49,6 +49,10 @@ const customerSchema = new mongoose.Schema({
     index: true
   },
   addresses: [addressSchema],
+  wishlist: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product'
+  }],
   isPhoneVerified: {
     type: Boolean,
     default: false

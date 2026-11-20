@@ -125,7 +125,7 @@ const ProductDetail = () => {
         {/* Gallery Column */}
         <div className="col-lg-5 col-md-6">
           <div className="smp-card p-3 sticky-top" style={{ top: '80px', backgroundColor: '#1E293B', border: '1px solid #334155' }}>
-            <div className="position-relative overflow-hidden rounded-3 d-flex align-items-center justify-content-center mb-3" style={{ height: '420px', backgroundColor: '#0F172A' }}>
+            <div className="product-gallery-image position-relative overflow-hidden rounded-3 d-flex align-items-center justify-content-center mb-3" style={{ height: '420px', backgroundColor: '#0F172A' }}>
               <img
                 src={selectedImage || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80'}
                 alt={product.name}

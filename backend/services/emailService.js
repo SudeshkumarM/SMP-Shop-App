@@ -41,6 +41,27 @@ const sendEmail = async ({ to, subject, html, text }) => {
   }
 };
 
+const sendAuthVerificationCode = async ({ to, code }) => {
+  const mailer = getTransporter();
+  if (!mailer) {
+    throw new Error('Email provider is not configured.');
+  }
+
+  try {
+    const info = await mailer.sendMail({
+      from: process.env.EMAIL_FROM || 'SMP Platform <noreply@smpshop.com>',
+      to,
+      subject: 'SMP verification code',
+      text: `Your SMP verification code is ${code}. It expires in 5 minutes. If you did not request it, ignore this email.`,
+      html: `<p>Your SMP verification code is <strong>${code}</strong>.</p><p>It expires in 5 minutes. If you did not request it, ignore this email.</p>`
+    });
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error(`[EmailService] Verification email delivery failed (${error.code || 'provider error'}).`);
+    throw new Error('Email provider could not send the verification code.');
+  }
+};
+
 const sendOrderConfirmation = async (order) => {
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
@@ -87,5 +108,6 @@ const sendOrderConfirmation = async (order) => {
 
 module.exports = {
   sendEmail,
+  sendAuthVerificationCode,
   sendOrderConfirmation
 };

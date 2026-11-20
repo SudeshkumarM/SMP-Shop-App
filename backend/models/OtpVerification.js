@@ -16,10 +16,6 @@ const otpVerificationSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  otpDev: {
-    type: String,
-    default: '' // Stored only in development/test mode for automated verification
-  },
   attempts: {
     type: Number,
     default: 0

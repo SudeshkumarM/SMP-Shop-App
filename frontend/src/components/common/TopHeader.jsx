@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 
-const TopHeader = ({ title, subtitle, module, onToggleSidebar }) => {
+const TopHeader = ({ title, subtitle, module, onToggleSidebar, sidebarOpen = false }) => {
   const { user } = useAuth();
 
   const getRoleBadgeBg = () => {
@@ -20,18 +20,19 @@ const TopHeader = ({ title, subtitle, module, onToggleSidebar }) => {
         minHeight: '64px'
       }}
     >
-      <div className="d-flex align-items-center gap-3">
+      <div className="d-flex align-items-center gap-3 min-w-0">
         {onToggleSidebar && (
           <button
             type="button"
-            className="btn btn-outline-secondary btn-sm d-md-none text-white border-secondary"
+            className="btn btn-outline-secondary btn-sm d-lg-none text-white border-secondary flex-shrink-0"
             onClick={onToggleSidebar}
             aria-label="Toggle Navigation"
+            aria-expanded={sidebarOpen}
           >
             <i className="bi bi-list fs-5"></i>
           </button>
         )}
-        <div>
+        <div className="min-w-0">
           <h4 className="mb-0 fw-bold brand-font text-white">{title}</h4>
           {subtitle && <small className="text-muted d-none d-sm-inline">{subtitle}</small>}
         </div>

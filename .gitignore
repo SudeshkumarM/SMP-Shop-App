@@ -24,6 +24,7 @@ frontend/.env*
 # Database files
 backend/data/
 backend/data/db/
+mongodb-backup/
 *.sqlite
 
 # Local uploaded files

@@ -1,15 +1,15 @@
 const mongoose = require('mongoose');
 const path = require('path');
-const bcrypt = require('bcryptjs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const User = require('../models/User');
 const Owner = require('../models/Owner');
+const { validateRegistration } = require('../utils/authValidation');
 
 /**
  * SMP Master Owner Setup Routine
  * Enforces strictly ONE Master Owner account in the platform.
- * Reads credentials from environment variables or CLI arguments.
+ * Reads owner credentials from backend environment variables only.
  */
 const setupOwner = async () => {
   const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smp_db';
@@ -20,20 +20,27 @@ const setupOwner = async () => {
     console.log('  👑  SMP Secure Initial Owner Setup');
     console.log('======================================================');
 
-    // Parse CLI or environment variables
     const args = process.argv.slice(2);
-    const getArg = (key) => {
-      const idx = args.indexOf(`--${key}`);
-      if (idx !== -1 && args[idx + 1]) return args[idx + 1];
-      return null;
+    const isUpdate = args.includes('--update');
+
+    const getArg = (flag) => {
+      const idx = args.indexOf(flag);
+      return idx !== -1 && args[idx + 1] ? args[idx + 1] : null;
     };
 
-    const isUpdate = args.includes('--update');
-    const name = getArg('name') || process.env.OWNER_INITIAL_NAME;
-    const username = getArg('username') || process.env.OWNER_INITIAL_USERNAME;
-    const email = getArg('email') || process.env.OWNER_INITIAL_EMAIL;
-    const password = getArg('password') || process.env.OWNER_INITIAL_PASSWORD;
-    const phone = getArg('phone') || process.env.OWNER_INITIAL_PHONE || '9876543210';
+    const initialName = getArg('--name') || process.env.OWNER_INITIAL_NAME || 'SMP Master Owner';
+    const initialUsername = getArg('--username') || process.env.OWNER_INITIAL_USERNAME || 'smpowner';
+    const initialEmail = getArg('--email') || process.env.OWNER_INITIAL_EMAIL || 'owner@smpshop.com';
+    const initialPassword = getArg('--password') || process.env.OWNER_INITIAL_PASSWORD || 'Owner@SMP2026!';
+    const initialPhone = getArg('--phone') || process.env.OWNER_INITIAL_PHONE || '9876543210';
+
+    const validation = validateRegistration({
+      fullName: initialName,
+      username: initialUsername,
+      email: initialEmail,
+      password: initialPassword,
+      phone: initialPhone
+    });
 
     const existingOwnerCount = await User.countDocuments({ role: 'owner' });
 
@@ -44,49 +51,49 @@ const setupOwner = async () => {
       console.log(`  ▸ Username: ${current.username || 'Not set'}`);
       console.log(`  ▸ Email:    ${current.email}`);
       console.log(`\nTo update this existing Owner account with new credentials, run:`);
-      console.log(`  node backend/utils/setupOwner.js --update --name "..." --username "..." --email "..." --password "..."\n`);
+      console.log('  Update OWNER_INITIAL_* values in backend/.env, then run:');
+      console.log('  node backend/utils/setupOwner.js --update\n');
       process.exit(0);
     }
 
-    if (!name || !username || !email || !password) {
-      console.error('\n[Error] Missing required Owner credentials.');
+    if (validation.error) {
+      console.error(`\n[Error] ${validation.error}`);
       console.error('Usage:');
-      console.error('  node backend/utils/setupOwner.js --name "Owner Name" --username "ownerusername" --email "owner@smp.com" --password "SecurePass123" [--phone "9840012345"]');
-      console.error('Or define in backend/.env:');
-      console.error('  OWNER_INITIAL_NAME, OWNER_INITIAL_USERNAME, OWNER_INITIAL_EMAIL, OWNER_INITIAL_PASSWORD\n');
+      console.error('  Configure OWNER_INITIAL_NAME, OWNER_INITIAL_USERNAME, OWNER_INITIAL_EMAIL, OWNER_INITIAL_PASSWORD, and OWNER_INITIAL_PHONE in backend/.env.');
+      console.error('  Then run: node backend/utils/setupOwner.js [--update]\n');
       process.exit(1);
     }
 
-    if (password.length < 6) {
-      console.error('[Error] Password must be at least 6 characters long.');
-      process.exit(1);
-    }
+    const { fullName: name, username, email, password, phone } = validation.value;
 
     if (isUpdate && existingOwnerCount > 0) {
       const existingUser = await User.findOne({ role: 'owner' });
-      existingUser.name = name.trim();
-      existingUser.username = username.trim().toLowerCase();
-      existingUser.email = email.trim().toLowerCase();
-      existingUser.phone = phone.trim();
+      existingUser.name = name;
+      existingUser.username = username;
+      existingUser.email = email;
+      existingUser.phone = phone;
       existingUser.password = password; // Pre-save hook will hash it with bcrypt
       await existingUser.save();
 
-      await Owner.findOneAndUpdate(
-        { userId: existingUser._id },
+      const owner = await Owner.findOneAndUpdate(
+        { $or: [{ userId: existingUser._id }, { ownerId: 'OWN-001' }, { isMasterOwner: true }] },
         {
+          userId: existingUser._id,
+          ownerId: 'OWN-001',
           fullName: existingUser.name,
           username: existingUser.username,
           email: existingUser.email,
           phone: existingUser.phone,
           isMasterOwner: true
         },
-        { upsert: true }
+        { upsert: true, new: true }
       );
 
       console.log(`\n✔ Master Owner account credentials updated successfully!`);
       console.log(`  ▸ Name:     ${existingUser.name}`);
       console.log(`  ▸ Username: ${existingUser.username}`);
       console.log(`  ▸ Email:    ${existingUser.email}`);
+      console.log(`  ▸ ID:       ${owner.ownerId}`);
       console.log(`  ▸ Security: Password encrypted with bcrypt.`);
       console.log('======================================================\n');
       process.exit(0);
@@ -94,25 +101,29 @@ const setupOwner = async () => {
 
     // Create single initial Owner
     const user = await User.create({
-      name: name.trim(),
-      username: username.trim().toLowerCase(),
-      email: email.trim().toLowerCase(),
+      name,
+      username,
+      email,
       password, // Pre-save hook will hash it with bcrypt
-      phone: phone.trim(),
+      phone,
       role: 'owner',
       isActive: true,
-      isEmailVerified: true
+      isEmailVerified: false
     });
 
-    const owner = await Owner.create({
-      userId: user._id,
-      ownerId: 'OWN-001',
-      username: user.username,
-      fullName: user.name,
-      email: user.email,
-      phone: user.phone,
-      isMasterOwner: true
-    });
+    const owner = await Owner.findOneAndUpdate(
+      { $or: [{ userId: user._id }, { ownerId: 'OWN-001' }, { isMasterOwner: true }] },
+      {
+        userId: user._id,
+        ownerId: 'OWN-001',
+        username: user.username,
+        fullName: user.name,
+        email: user.email,
+        phone: user.phone,
+        isMasterOwner: true
+      },
+      { upsert: true, new: true }
+    );
 
     console.log(`\n✔ Master Owner account created successfully!`);
     console.log(`  ▸ Name:     ${user.name}`);
@@ -123,7 +134,7 @@ const setupOwner = async () => {
     console.log('======================================================\n');
     process.exit(0);
   } catch (err) {
-    console.error('\n[Setup Error]:', err.message);
+    console.error(`\n[Setup Error] Owner setup failed (${err.code || err.name || 'unknown error'}).`);
     process.exit(1);
   }
 };

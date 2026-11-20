@@ -1,3 +1,8 @@
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -35,6 +40,9 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const app = express();
 const server = http.createServer(app);
 const isVercel = Boolean(process.env.VERCEL);
+if (isVercel) {
+  app.set('trust proxy', 1);
+}
 
 // Initialize Socket.IO for Real-time Synchronization
 const io = isVercel ? null : new Server(server, {
@@ -69,7 +77,16 @@ if (process.env.NODE_ENV !== 'production') {
 // Static folder for uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Health check endpoint
+// Health check endpoints
+app.get('/api', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    platform: 'SMP',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
@@ -169,7 +186,7 @@ server.on('error', (err) => {
   }
 });
 
-if (!isVercel) {
+if (require.main === module && !isVercel) {
   server.listen(PORT, () => {
     console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
   });
@@ -180,3 +197,4 @@ process.on('unhandledRejection', (err) => {
 });
 
 module.exports = app;
+module.exports.server = server;

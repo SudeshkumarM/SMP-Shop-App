@@ -1,8 +1,8 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const {
-  initiateCustomerRegister,
-  completeCustomerRegister,
+  registerCustomer,
   loginCustomer,
   loginStaff,
   loginAdmin,
@@ -19,26 +19,49 @@ const {
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again later.' }
+});
+
+const verificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many verification requests. Please try again later.' }
+});
+
+const registrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many registration attempts. Please try again later.' }
+});
+
 // Customer Auth
-router.post('/customer/register-initiate', initiateCustomerRegister);
-router.post('/customer/register-verify', completeCustomerRegister);
-router.post('/customer/login', loginCustomer);
+router.post('/customer/register', registrationLimiter, registerCustomer);
+router.post('/customer/login', loginLimiter, loginCustomer);
 
 // Staff Auth
-router.post('/staff/login', loginStaff);
+router.post('/staff/login', loginLimiter, loginStaff);
 
 // Admin Auth
-router.post('/admin/login', loginAdmin);
+router.post('/admin/login', loginLimiter, loginAdmin);
 
 // Owner Auth
-router.post('/owner/login', loginOwner);
-router.post('/owner/setup-initial', setupInitialOwner);
+router.post('/owner/login', loginLimiter, loginOwner);
+router.post('/owner/setup-initial', verificationLimiter, setupInitialOwner);
 
 // Password recovery
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
-router.post('/forgot-password-email', forgotPasswordEmail);
-router.post('/reset-password/:token', resetPasswordWithToken);
+router.post('/forgot-password', verificationLimiter, forgotPassword);
+router.post('/reset-password', verificationLimiter, resetPassword);
+router.post('/forgot-password-email', verificationLimiter, forgotPasswordEmail);
+router.post('/reset-password/:token', verificationLimiter, resetPasswordWithToken);
 
 // Profile
 router.get('/me', protect, getMe);

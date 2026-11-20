@@ -15,7 +15,7 @@
 
 SMP provides **four completely segregated user modules**, each with isolated routing, dual-credential authentication (Username OR Email + Password), dedicated sidebar navigation, role-based authorization guards, and granular permissions:
 
-1. **🛍️ Customer Module**: Consumer storefront featuring mobile OTP verification, dynamic filtering, real-time cart math, wishlist, multi-address checkout, mock payment gateway, order tracking, and dedicated Customer Help.
+1. **🛍️ Customer Module**: Consumer storefront featuring direct customer registration, dynamic filtering, real-time cart math, wishlist, multi-address checkout, mock payment gateway, order tracking, and dedicated Customer Help.
 2. **💳 Staff Module**: High-speed Point of Sale (POS) counter billing terminal featuring barcode scanning (`890123450001`), SKU search, instant customer enrollment, invoice generation, atomic stock deduction, bill correction (if enabled by Admin), thermal printing, and PDF invoice downloads.
 3. **⚙️ Admin Module**: Store management console for inventory control, staff provisioning (with individual usernames e.g. `kumar01`, `staff02` and Staff IDs e.g. `STF-1001`), customer CRM with Excel export, product price & GST modification, bill editing/cancellation with audit logs, and tax/sales reporting.
 4. **👑 Owner Module**: Highest executive authority console for business oversight across multiple shops and branches, tracking initial & operational capital investments, recurring overheads, and performing true mathematical Profit & Loss audits ($Gross\ Profit = Total\ Sales - Total\ Purchase\ Cost$; $Net\ Profit = Gross\ Profit - Total\ Expenses$).
@@ -43,7 +43,7 @@ SMP provides **four completely segregated user modules**, each with isolated rou
 - **Security**: Rate limiting, CORS whitelist, atomic stock decrement transactions
 - **File Storage**: Multer disk storage for product imagery & invoice assets
 - **Barcode Engine**: Custom SVG/Canvas generation & SKU barcode checksum calculation
-- **Notifications**: Dual-mode OTP service (Mandatory Mobile OTP verification for registration)
+- **Notifications**: MSG91/SMTP password-recovery codes
 
 ### Database Layer
 - **Engine**: MongoDB Community Server v8.2+ (`mongodb://127.0.0.1:27017/smp_db`)
@@ -52,19 +52,25 @@ SMP provides **four completely segregated user modules**, each with isolated rou
 
 ---
 
-## 3. Seeded Demo Accounts & Credentials
+## 3. Authentication and Verification Configuration
 
-The system comes pre-populated with a complete operational dataset. All user modules support login via **Username OR Email + Password**:
+Do not use demo credentials in production. Provision owner credentials through the secured owner setup procedure; do not put account passwords in source control or documentation.
 
-| Module | Role | Username | Email / ID | Password | Access Scope |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **👑 Owner** | `owner` | `kumar` | `owner@smp.com` | `Password123` | Global Platform & All Mall Shops |
-| **⚙️ Admin** | `admin` | `admin01` | `admin@smp.com` / `ADM-101` | `Password123` | SMP Elite Fashions (Shop Admin) |
-| **💳 Staff 1** | `staff` | `kumar01` | `staff@smp.com` / `STF-1001` | `Password123` | Senior Cashier (Can Edit Bills) |
-| **💳 Staff 2** | `staff` | `staff02` | `staff02@smp.com` / `STF-1002` | `Password123` | Billing Executive |
-| **🛍️ Customer** | `customer` | `kumar_customer` | `customer@smp.com` / `9876543210`| `Password123` | Storefront & Personal Account |
+Set these variables in `backend/.env` for local development and in the backend deployment environment for production:
 
-*Note: Entering invalid credentials displays the exact standardized message: `"Invalid Username/Email or Password."`*
+- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: backend-only Supabase connection.
+- `OTP_HASH_SECRET`: randomly generated secret with at least 32 characters, used to HMAC OTP values before storage.
+- `JWT_SECRET`: separate high-entropy secret for SMP API tokens.
+- `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, and `MSG91_OTP_VARIABLE`: MSG91 Flow credentials and the exact OTP variable configured in the approved template.
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM`: SMTP configuration for email recovery codes.
+- `OWNER_SETUP_TOKEN`: separate random token required by the one-time owner initialization endpoint.
+- `OWNER_INITIAL_NAME`, `OWNER_INITIAL_USERNAME`, `OWNER_INITIAL_EMAIL`, `OWNER_INITIAL_PASSWORD`, and `OWNER_INITIAL_PHONE`: optional private values used by the local owner setup script. Set them in `backend/.env`, then run `node backend/utils/setupOwner.js`; add `--update` only when intentionally rotating an existing owner's credentials.
+
+Customer registration creates a Supabase Auth account after field validation and sends an email confirmation link. Customers must confirm the email before signing in. Registration does not use CAPTCHA, send a mobile OTP, or verify mobile ownership; mobile numbers remain unverified contact details. Password recovery continues to use a separate verification code through the user's selected email or mobile method. Configure Supabase Auth's site URL, redirect allow-list, and email delivery settings for the application.
+
+If mobile password recovery is enabled, configure an approved MSG91 Flow template whose placeholder matches `MSG91_OTP_VARIABLE`. Complete applicable Indian DLT entity, header/sender ID, and content-template registration and approval with the provider and telecom operators before sending live traffic. The backend treats provider acceptance as an accepted request, not proof of handset delivery.
+
+Apply the SQL files in `supabase/migrations/` in order, including `20261120093000_smp_auth_otp.sql` and `20261120111000_smp_disable_registration_sms_otp.sql`. The earlier registration-CAPTCHA migration is retained for existing project history but is no longer used by customer registration. Keep Supabase Secret Keys, OTP hash secrets, MSG91 keys, SMTP passwords, `JWT_SECRET`, and `OWNER_SETUP_TOKEN` backend-only. Configure Supabase Auth email confirmation consistently with the existing account policy; do not mark email or phone verified unless it was actually verified.
 
 ---
 
@@ -102,9 +108,9 @@ Admin and Owner have complete authority to edit the Shirt name, image, price, GS
 ### 5.2 Customer Portal (`CustomerLayout` + Route Guards)
 | Route | Component | Description |
 | :--- | :--- | :--- |
-| `/customer/register` | `CustomerRegister.jsx` | Customer registration (Full Name, Username, Email, Phone, Password) with mobile OTP |
-| `/customer/verify-otp` | `CustomerVerifyOtp.jsx` | 6-digit SMS OTP verification (no email OTP required) |
-| `/customer/login` | `CustomerLogin.jsx` | Dual-credential login (Username/Email + Password), Welcome Kumar! greeting |
+| `/customer/register` | `CustomerRegister.jsx` | Direct customer registration; phone remains unverified |
+| `/customer/verify-otp` | `CustomerVerifyOtp.jsx` | Legacy route redirects to customer registration |
+| `/customer/login` | `CustomerLogin.jsx` | Supabase Auth login by username, email, or mobile number + password |
 | `/customer/forgot-password` | `ForgotPassword.jsx` | Identity verification & secure password reset |
 | `/customer/dashboard` | `CustomerDashboard.jsx` | Personal shopping metrics, recent orders, saved addresses |
 | `/customer/profile` | `CustomerProfile.jsx` | Profile update (name, username, email, phone) & password change |
@@ -112,7 +118,7 @@ Admin and Owner have complete authority to edit the Shirt name, image, price, GS
 | `/customer/wishlist` | `CustomerWishlist.jsx` | Saved favorite products with quick "Move to Cart" |
 | `/customer/checkout` | `CustomerCheckout.jsx` | Multi-address selection, new address modal, delivery options |
 | `/customer/payment` | `CustomerPayment.jsx` | UPI, Card, NetBanking & COD mock gateway with invoice modal |
-| `/customer/help` | `CustomerHelp.jsx` | **Customer Help Center**: Registration, OTP, Login, Shopping, Payment, Orders |
+| `/customer/help` | `CustomerHelp.jsx` | **Customer Help Center**: Registration and recovery codes, Login, Shopping, Payment, Orders |
 
 ### 5.3 Staff Billing / POS Terminal (`StaffLayout`)
 | Route | Component | Description |

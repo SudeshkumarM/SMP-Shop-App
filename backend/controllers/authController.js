@@ -1,5 +1,4 @@
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
 const Customer = require('../models/Customer');
@@ -7,8 +6,61 @@ const Staff = require('../models/Staff');
 const Admin = require('../models/Admin');
 const Owner = require('../models/Owner');
 const Shop = require('../models/Shop');
-const { createAndSendOtp, verifyOtp } = require('../services/otpService');
+const {
+  OtpServiceError,
+  createAndSendOtp,
+  verifyOtp,
+  consumeOtp
+} = require('../services/otpService');
 const { sendEmail } = require('../services/emailService');
+const {
+  INDIAN_MOBILE_PATTERN,
+  normalizeEmail,
+  normalizeIndianMobile,
+  normalizeUsername,
+  isStrongPassword,
+  validateRegistration
+} = require('../utils/authValidation');
+const {
+  SupabaseCustomerAuthError,
+  assertNoCustomerDuplicate,
+  createCustomerIdentity,
+  authenticateCustomer,
+  updateCustomerPassword,
+  deleteCustomerIdentityByMongoId
+} = require('../services/supabaseCustomerAuth');
+const respondAuthError = (res, error, operation, fallbackMessage) => {
+  if (
+    error instanceof OtpServiceError ||
+    error instanceof SupabaseCustomerAuthError
+  ) {
+    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+  if (error?.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: 'An account with one or more of these details already exists.'
+    });
+  }
+  console.error(`[Auth] ${operation} failed (${error?.code || error?.name || 'unknown error'}).`);
+  return res.status(500).json({ success: false, message: fallbackMessage });
+};
+
+const createCustomerCode = () =>
+  `CUST-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+const createCustomerAddresses = ({ address, city, state, pincode }) => {
+  if (!address || !city || !state || !pincode) return [];
+  return [{
+    title: 'Home',
+    street: address,
+    city,
+    state,
+    pincode,
+    country: 'India',
+    isDefault: true
+  }];
+};
 
 const generateToken = (user) => {
   return jwt.sign(
@@ -26,129 +78,93 @@ const generateToken = (user) => {
 };
 
 /**
- * @desc    Step 1: Initiate Customer Registration and send Mobile OTP
- * @route   POST /api/auth/customer/register-initiate
+ * @desc    Create a customer account
+ * @route   POST /api/auth/customer/register
  * @access  Public
  */
-const initiateCustomerRegister = async (req, res) => {
+const registerCustomer = async (req, res) => {
+  let user;
+  let customer;
+  let supabaseIdentityCreated = false;
   try {
-    const { fullName, username, email, phone, password } = req.body;
-
-    if (!fullName || !email || !phone || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide all required fields' });
+    const validation = validateRegistration(req.body);
+    if (validation.error) {
+      return res.status(400).json({ success: false, message: validation.error });
     }
 
-    const cleanUsername = username ? username.trim().toLowerCase() : email.split('@')[0].toLowerCase();
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPhone = phone.trim();
-
-    // Check if user already exists
-    const queryOr = [{ email: cleanEmail }, { phone: cleanPhone }];
-    if (cleanUsername) queryOr.push({ username: cleanUsername });
-
-    const existingUser = await User.findOne({ $or: queryOr });
-
-    if (existingUser) {
-      if (existingUser.username && existingUser.username === cleanUsername) {
-        return res.status(400).json({ success: false, message: 'This username is already taken. Please choose another.' });
-      }
-      return res.status(400).json({
+    const { fullName, username, email, phone, password } = validation.value;
+    const duplicate = await User.findOne({
+      $or: [{ email }, { phone }, { username }]
+    }).select('_id username email phone');
+    if (duplicate) {
+      const field = duplicate.username === username
+        ? 'username'
+        : duplicate.email === email
+          ? 'email'
+          : 'mobile number';
+      return res.status(409).json({
         success: false,
-        message: 'An account with this email or mobile number already exists.'
+        message: `An account with this ${field} already exists.`
       });
     }
 
-    // Mandatory Mobile OTP only (No email OTP required per requirements)
-    const otpResult = await createAndSendOtp(cleanPhone, 'REGISTRATION');
+    await assertNoCustomerDuplicate({ email, username, phone });
 
-    res.status(200).json({
-      success: true,
-      message: 'Mobile OTP sent successfully. Please enter the OTP to complete registration.',
-      phone: cleanPhone,
-      email: cleanEmail,
-      username: cleanUsername,
-      expiresInMinutes: otpResult.expiresInMinutes,
-      devOtp: otpResult.devOtp
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
- * @desc    Step 2: Complete Customer Registration after successful Mobile OTP verification
- * @route   POST /api/auth/customer/register-verify
- * @access  Public
- */
-const completeCustomerRegister = async (req, res) => {
-  try {
-    const { fullName, username, email, phone, password, address, city, state, pincode, otp } = req.body;
-
-    if (!otp) {
-      return res.status(400).json({ success: false, message: 'Mobile OTP is required' });
-    }
-
-    const cleanPhone = phone ? phone.trim() : '';
-    const cleanEmail = email ? email.trim().toLowerCase() : '';
-    const cleanUsername = username ? username.trim().toLowerCase() : cleanEmail.split('@')[0];
-
-    // Verify Mobile OTP
-    const verification = await verifyOtp(cleanPhone, otp, 'REGISTRATION');
-    if (!verification.success) {
-      return res.status(400).json({ success: false, message: verification.message });
-    }
-
-    // Double check user doesn't already exist
-    let user = await User.findOne({
-      $or: [{ email: cleanEmail }, { phone: cleanPhone }, { username: cleanUsername }]
-    });
-    if (user) {
-      return res.status(400).json({ success: false, message: 'User with these credentials already exists.' });
-    }
-
-    const defaultShop = await Shop.findOne({ isActive: true });
-
-    // Create User record in MongoDB
+    const registration = {
+      fullName,
+      username,
+      email,
+      phone,
+      address: String(req.body.address || '').trim(),
+      city: String(req.body.city || '').trim(),
+      state: String(req.body.state || '').trim(),
+      pincode: String(req.body.pincode || '').trim()
+    };
+    const defaultShop = await Shop.findOne({ isActive: true }).select('_id');
+    const customerId = createCustomerCode();
     user = await User.create({
-      name: fullName.trim(),
-      username: cleanUsername,
-      email: cleanEmail,
-      phone: cleanPhone,
-      password,
+      name: fullName,
+      username,
+      email,
+      phone,
+      password: crypto.randomBytes(32).toString('hex'),
       role: 'customer',
-      isPhoneVerified: true,
+      isPhoneVerified: false,
       shopId: defaultShop ? defaultShop._id : null
     });
 
-    const customerCount = await Customer.countDocuments();
-    const customerId = `CUST-${customerCount + 1001}`;
-
-    const customer = await Customer.create({
+    customer = await Customer.create({
       userId: user._id,
       customerId,
       fullName: user.name,
-      username: cleanUsername,
+      username,
       email: user.email,
-      phone: cleanPhone,
-      isPhoneVerified: true,
-      addresses: address && city && state && pincode ? [{
-        title: 'Home',
-        street: address,
-        city,
-        state,
-        pincode,
-        country: 'India',
-        isDefault: true
-      }] : []
+      phone,
+      isPhoneVerified: false,
+      addresses: createCustomerAddresses(registration)
     });
 
-    const token = generateToken(user);
+    await createCustomerIdentity({
+      profile: registration,
+      password,
+      mongoUserId: user._id,
+      customerId,
+      addresses: createCustomerAddresses(registration).map((address) => ({
+        title: address.title,
+        street: address.street,
+        city: address.city,
+        state: address.state,
+        pincode: address.pincode,
+        country: address.country,
+        is_default: address.isDefault
+      }))
+    });
+    supabaseIdentityCreated = true;
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       welcomeMessage: `Welcome ${user.name}!`,
-      message: `Registration successful! Welcome to SMP, ${fullName}.`,
-      token,
+      message: `Registration successful, ${user.name}. Check your email to confirm your account before signing in.`,
       user: {
         id: user._id,
         name: user.name,
@@ -160,7 +176,24 @@ const completeCustomerRegister = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    if (supabaseIdentityCreated && user?._id) {
+      try {
+        await deleteCustomerIdentityByMongoId(user._id);
+      } catch {
+        console.error('[Auth] Supabase customer rollback failed.');
+      }
+    }
+    if (customer?._id) {
+      await Customer.deleteOne({ _id: customer._id }).catch(() => {
+        console.error('[Auth] Customer profile rollback failed.');
+      });
+    }
+    if (user?._id) {
+      await User.deleteOne({ _id: user._id }).catch(() => {
+        console.error('[Auth] User profile rollback failed.');
+      });
+    }
+    return respondAuthError(res, error, 'customer registration', 'Registration could not be completed. Please try again.');
   }
 };
 
@@ -172,28 +205,46 @@ const completeCustomerRegister = async (req, res) => {
 const loginCustomer = async (req, res) => {
   try {
     const { identifier, username, email, password } = req.body;
-    const inputId = (identifier || username || email || '').trim();
+    const inputId = String(identifier || username || email || '').trim();
 
     if (!inputId || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide Username/Email and password' });
+      return res.status(400).json({ success: false, message: 'Please provide your username, email, or mobile number and password.' });
     }
 
-    // Match by username, email, or phone
-    const user = await User.findOne({
+    let user = null;
+    let supabaseUnavailable = null;
+    try {
+      user = await authenticateCustomer(inputId, password, User);
+    } catch (error) {
+      if (!(error instanceof SupabaseCustomerAuthError) || error.statusCode !== 503) {
+        throw error;
+      }
+      supabaseUnavailable = error;
+    }
+
+    if (!user) {
+      const normalizedPhone = normalizeIndianMobile(inputId);
+      const phoneFilters = INDIAN_MOBILE_PATTERN.test(normalizedPhone)
+        ? [{ phone: normalizedPhone }, { phone: `+91${normalizedPhone}` }]
+        : [{ phone: inputId }];
+      user = await User.findOne({
       $or: [
-        { email: inputId.toLowerCase() },
-        { username: inputId.toLowerCase() },
-        { phone: inputId }
+        { email: normalizeEmail(inputId) },
+        { username: normalizeUsername(inputId) },
+        ...phoneFilters
       ]
-    }).select('+password');
+      }).select('+password');
 
-    if (!user || user.role !== 'customer') {
-      return res.status(401).json({ success: false, message: 'Invalid Username/Email or Password.' });
-    }
+      if (!user || user.role !== 'customer') {
+        if (supabaseUnavailable) throw supabaseUnavailable;
+        return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
+      }
 
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid Username/Email or Password.' });
+      const isMatch = await user.matchPassword(password);
+      if (!isMatch) {
+        if (supabaseUnavailable) throw supabaseUnavailable;
+        return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
+      }
     }
 
     if (!user.isActive) {
@@ -211,7 +262,7 @@ const loginCustomer = async (req, res) => {
       ? 'Welcome Kumar!'
       : `Welcome ${user.name}!`;
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       welcomeMessage: welcomeGreeting,
       token,
@@ -226,7 +277,7 @@ const loginCustomer = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'customer login', 'Login could not be completed. Please try again.');
   }
 };
 
@@ -312,7 +363,7 @@ const loginStaff = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'staff login', 'Login could not be completed. Please try again.');
   }
 };
 
@@ -389,7 +440,7 @@ const loginAdmin = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'admin login', 'Login could not be completed. Please try again.');
   }
 };
 
@@ -400,6 +451,23 @@ const loginAdmin = async (req, res) => {
  */
 const setupInitialOwner = async (req, res) => {
   try {
+    const setupToken = process.env.OWNER_SETUP_TOKEN;
+    const providedToken = req.get('x-owner-setup-token') || '';
+    if (!setupToken || setupToken.length < 32) {
+      return res.status(503).json({
+        success: false,
+        message: 'Secure owner initialization is not configured. Use the authorized owner setup procedure.'
+      });
+    }
+    const expectedBuffer = Buffer.from(setupToken);
+    const providedBuffer = Buffer.from(providedToken);
+    if (
+      expectedBuffer.length !== providedBuffer.length ||
+      !crypto.timingSafeEqual(expectedBuffer, providedBuffer)
+    ) {
+      return res.status(401).json({ success: false, message: 'Owner initialization is not authorized.' });
+    }
+
     const existingOwnerCount = await User.countDocuments({ role: 'owner' });
     if (existingOwnerCount > 0) {
       return res.status(403).json({
@@ -409,29 +477,27 @@ const setupInitialOwner = async (req, res) => {
     }
 
     const { name, username, email, password, phone } = req.body;
-    if (!name || !username || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide Owner Name, Username, Email, and Password.'
-      });
+    const validation = validateRegistration({
+      fullName: name,
+      username,
+      email,
+      phone,
+      password
+    });
+    if (validation.error) {
+      return res.status(400).json({ success: false, message: validation.error });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters long.'
-      });
-    }
-
+    const credentials = validation.value;
     const user = await User.create({
-      name: name.trim(),
-      username: username.trim().toLowerCase(),
-      email: email.trim().toLowerCase(),
-      password, // User model pre-save hook handles bcrypt hashing
-      phone: (phone || '9876543210').trim(),
+      name: credentials.fullName,
+      username: credentials.username,
+      email: credentials.email,
+      password: credentials.password,
+      phone: credentials.phone,
       role: 'owner',
       isActive: true,
-      isEmailVerified: true
+      isEmailVerified: false
     });
 
     const owner = await Owner.create({
@@ -459,7 +525,7 @@ const setupInitialOwner = async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    return respondAuthError(res, err, 'owner initialization', 'Owner account could not be initialized.');
   }
 };
 
@@ -474,13 +540,19 @@ const loginOwner = async (req, res) => {
     const inputId = (email || username || identifier || '').trim();
 
     if (!inputId || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide Owner Username or Email and password' });
+      return res.status(400).json({ success: false, message: 'Please provide Owner Username, Email, or Mobile Number and password' });
     }
+
+    const normalizedPhone = normalizeIndianMobile(inputId);
+    const phoneFilters = INDIAN_MOBILE_PATTERN.test(normalizedPhone)
+      ? [{ phone: normalizedPhone }, { phone: `+91${normalizedPhone}` }]
+      : [{ phone: inputId }];
 
     const user = await User.findOne({
       $or: [
         { email: inputId.toLowerCase() },
-        { username: inputId.toLowerCase() }
+        { username: inputId.toLowerCase() },
+        ...phoneFilters
       ]
     }).select('+password');
 
@@ -491,6 +563,10 @@ const loginOwner = async (req, res) => {
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid Username/Email or Password.' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Owner account has been deactivated.' });
     }
 
     user.lastLogin = new Date();
@@ -515,7 +591,7 @@ const loginOwner = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'owner login', 'Login could not be completed. Please try again.');
   }
 };
 
@@ -526,36 +602,42 @@ const loginOwner = async (req, res) => {
  */
 const forgotPassword = async (req, res) => {
   try {
-    const { identifier } = req.body;
-
-    if (!identifier) {
-      return res.status(400).json({ success: false, message: 'Please provide registered email, username or mobile number' });
+    const { identifier, channel: requestedChannel } = req.body;
+    const cleanIdentifier = String(identifier || '').trim();
+    const channel = requestedChannel || (cleanIdentifier.includes('@') ? 'email' : 'sms');
+    if (!cleanIdentifier || !['sms', 'email'].includes(channel)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter the registered email address or mobile number and choose its matching recovery method.'
+      });
     }
 
-    const clean = identifier.trim().toLowerCase();
-    const user = await User.findOne({
-      $or: [
-        { email: clean },
-        { username: clean },
-        { phone: identifier.trim() }
-      ]
-    });
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'No account registered with this Username, Email, or Mobile.' });
+    const normalizedIdentifier = channel === 'email'
+      ? normalizeEmail(cleanIdentifier)
+      : normalizeIndianMobile(cleanIdentifier);
+    if (channel === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedIdentifier)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid registered email address.' });
+    }
+    if (channel === 'sms' && !/^[6-9]\d{9}$/.test(normalizedIdentifier)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid 10-digit Indian mobile number.' });
     }
 
-    const phoneOrEmail = user.phone || user.email;
-    const otpResult = await createAndSendOtp(phoneOrEmail, 'FORGOT_PASSWORD');
+    const user = await User.findOne(
+      channel === 'email' ? { email: normalizedIdentifier } : { phone: normalizedIdentifier }
+    ).select('_id email phone');
 
-    res.status(200).json({
+    if (user) {
+      const destination = channel === 'email' ? user.email : user.phone;
+      await createAndSendOtp(destination, 'FORGOT_PASSWORD', { channel });
+    }
+
+    return res.status(202).json({
       success: true,
-      message: `Verification code sent to registered ${user.phone ? 'phone ending in ' + user.phone.slice(-4) : 'email'}.`,
-      identifier: phoneOrEmail,
-      devOtp: otpResult.devOtp
+      channel,
+      message: 'If an account matches those details, a verification code has been requested for the selected recovery method.'
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'password recovery code request', 'Could not start password recovery. Please try again.');
   }
 };
 
@@ -566,42 +648,51 @@ const forgotPassword = async (req, res) => {
  */
 const resetPassword = async (req, res) => {
   try {
-    const { identifier, otp, newPassword } = req.body;
+    const { identifier, otp, newPassword, channel: requestedChannel } = req.body;
+    const cleanIdentifier = String(identifier || '').trim();
+    const channel = requestedChannel || (cleanIdentifier.includes('@') ? 'email' : 'sms');
 
-    if (!identifier || !otp || !newPassword) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
+    if (!cleanIdentifier || !otp || !newPassword || !['sms', 'email'].includes(channel)) {
+      return res.status(400).json({ success: false, message: 'Recovery method, identifier, code, and new password are required.' });
+    }
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be 8-128 characters and include uppercase, lowercase, and numeric characters.'
+      });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
-    }
-
-    const verification = await verifyOtp(identifier, otp, 'FORGOT_PASSWORD');
+    const normalizedIdentifier = channel === 'email'
+      ? normalizeEmail(cleanIdentifier)
+      : normalizeIndianMobile(cleanIdentifier);
+    const verification = await verifyOtp(normalizedIdentifier, otp, 'FORGOT_PASSWORD', channel);
     if (!verification.success) {
       return res.status(400).json({ success: false, message: verification.message });
     }
 
-    const user = await User.findOne({
-      $or: [
-        { email: identifier.toLowerCase().trim() },
-        { username: identifier.toLowerCase().trim() },
-        { phone: identifier.trim() }
-      ]
-    });
+    const user = await User.findOne(
+      channel === 'email' ? { email: normalizedIdentifier } : { phone: normalizedIdentifier }
+    ).select('+password');
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    user.password = newPassword;
-    await user.save();
+    const updatedInSupabase = user.role === 'customer'
+      ? await updateCustomerPassword(user._id, newPassword)
+      : false;
+    if (!updatedInSupabase) {
+      user.password = newPassword;
+      await user.save();
+    }
+    await consumeOtp(verification.otpId, 'FORGOT_PASSWORD');
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Password reset successful! You can now log in with your new password.'
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'password reset', 'Password could not be reset. Please try again.');
   }
 };
 
@@ -611,37 +702,8 @@ const resetPassword = async (req, res) => {
  * @access  Public
  */
 const forgotPasswordEmail = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Please provide your registered email address.' });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const user = await User.findOne({ email: cleanEmail });
-
-    // Prevent user enumeration: Always return positive message
-    if (!user) {
-      return res.status(200).json({
-        success: true,
-        message: 'If an account with that email exists, a password reset link has been generated.'
-      });
-    }
-
-    // Generate reset token and save expiration
-    const resetToken = user.getResetPasswordToken();
-    await user.save({ validateBeforeSave: false });
-
-    console.log(`[SMP AUTH] Password reset link for ${user.email}: /reset-password/${resetToken}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'If an account with that email exists, a password reset link has been generated.',
-      resetToken // Expose in response for testing/development
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+  req.body = { ...req.body, identifier: req.body?.email, channel: 'email' };
+  return forgotPassword(req, res);
 };
 
 /**
@@ -658,8 +720,11 @@ const resetPasswordWithToken = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Reset token and new password are required.' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be 8-128 characters and include uppercase, lowercase, and numeric characters.'
+      });
     }
 
     const hashedToken = crypto
@@ -679,7 +744,10 @@ const resetPasswordWithToken = async (req, res) => {
       });
     }
 
-    user.password = newPassword;
+    const updatedInSupabase = user.role === 'customer'
+      ? await updateCustomerPassword(user._id, newPassword)
+      : false;
+    if (!updatedInSupabase) user.password = newPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
@@ -689,7 +757,7 @@ const resetPasswordWithToken = async (req, res) => {
       message: 'Password reset successful! You can now log in with your new password.'
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'legacy password reset', 'Password could not be reset. Please try again.');
   }
 };
 
@@ -719,7 +787,7 @@ const getMe = async (req, res) => {
       profile: extraData
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'profile retrieval', 'Profile could not be loaded. Please try again.');
   }
 };
 
@@ -817,7 +885,7 @@ const updateProfile = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'profile update', 'Profile could not be updated. Please try again.');
   }
 };
 
@@ -874,7 +942,7 @@ const verifyEmailChange = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'email verification', 'Email verification could not be completed. Please try again.');
   }
 };
 
@@ -888,27 +956,46 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const user = await User.findById(req.user._id).select('+password');
 
-    const isMatch = await user.matchPassword(currentPassword);
+    if (!user || !currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new passwords are required.' });
+    }
+
+    const mongoPasswordMatches = await user.matchPassword(currentPassword);
+    let supabaseCustomerAuthenticated = false;
+    if (user.role === 'customer' && !mongoPasswordMatches) {
+      const authenticatedUser = await authenticateCustomer(user.email, currentPassword, User);
+      supabaseCustomerAuthenticated = Boolean(
+        authenticatedUser && String(authenticatedUser._id) === String(user._id)
+      );
+    }
+
+    const isMatch = mongoPasswordMatches || supabaseCustomerAuthenticated;
     if (!isMatch) {
       return res.status(400).json({ success: false, message: 'Current password does not match' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be 8-128 characters and include uppercase, lowercase, and numeric characters.'
+      });
     }
 
-    user.password = newPassword;
-    await user.save();
+    if (supabaseCustomerAuthenticated) {
+      await updateCustomerPassword(user._id, newPassword);
+    } else {
+      user.password = newPassword;
+      await user.save();
+    }
 
     res.status(200).json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return respondAuthError(res, error, 'password change', 'Password could not be changed. Please try again.');
   }
 };
 
 module.exports = {
-  initiateCustomerRegister,
-  completeCustomerRegister,
+  registerCustomer,
   loginCustomer,
   loginStaff,
   loginAdmin,

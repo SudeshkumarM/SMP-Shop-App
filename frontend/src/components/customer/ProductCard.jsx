@@ -81,7 +81,7 @@ const ProductCard = ({ product, onWishlistToggle }) => {
       {/* Product Image */}
       <Link to={`/product/${product._id}`} className="text-decoration-none">
         <div
-          className="position-relative overflow-hidden d-flex align-items-center justify-content-center"
+          className="product-card-image position-relative overflow-hidden d-flex align-items-center justify-content-center"
           style={{ height: '240px', backgroundColor: '#0F172A' }}
         >
           <img

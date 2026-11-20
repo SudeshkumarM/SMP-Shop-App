@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
@@ -8,6 +8,17 @@ const Navbar = () => {
   const { itemCount } = useCart();
   const navigate = useNavigate();
   const [keyword, setKeyword] = useState('');
+  const [installPrompt, setInstallPrompt] = useState(null);
+
+  useEffect(() => {
+    const handleInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -21,6 +32,12 @@ const Navbar = () => {
   const handleLogout = () => {
     const redirectUrl = logout();
     navigate(redirectUrl);
+  };
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    setInstallPrompt(null);
   };
 
   return (
@@ -58,7 +75,7 @@ const Navbar = () => {
         </Link>
 
         {/* Search Bar */}
-        <form onSubmit={handleSearch} className="d-flex flex-grow-1 mx-lg-4 my-2 my-lg-0" style={{ maxWidth: '440px' }}>
+        <form onSubmit={handleSearch} className="navbar-search d-flex flex-grow-1 mx-lg-4 my-2 my-lg-0" style={{ maxWidth: '440px' }}>
           <div className="input-group input-group-sm">
             <input
               type="text"
@@ -80,6 +97,9 @@ const Navbar = () => {
           type="button"
           data-bs-toggle="collapse"
           data-bs-target="#navbarContent"
+          aria-controls="navbarContent"
+          aria-expanded="false"
+          aria-label="Toggle navigation"
         >
           <i className="bi bi-list fs-3 text-white"></i>
         </button>
@@ -185,6 +205,13 @@ const Navbar = () => {
                     </>
                   )}
 
+                  {installPrompt && (
+                    <li>
+                      <button type="button" onClick={handleInstall} className="dropdown-item py-2">
+                        <i className="bi bi-download me-2"></i>Install SMP App
+                      </button>
+                    </li>
+                  )}
                   <li><hr className="dropdown-divider my-1" /></li>
                   <li>
                     <button onClick={handleLogout} className="dropdown-item py-2 text-danger">
@@ -194,14 +221,23 @@ const Navbar = () => {
                 </ul>
               </li>
             ) : (
-              <li className="nav-item d-flex gap-2">
-                <Link to="/customer/login" className="btn btn-outline-primary btn-sm px-3 rounded-pill fw-medium">
-                  Login
-                </Link>
-                <Link to="/customer/register" className="btn btn-primary btn-sm px-3 rounded-pill fw-medium">
-                  Register
-                </Link>
-              </li>
+              <>
+                {installPrompt && (
+                  <li className="nav-item">
+                    <button type="button" onClick={handleInstall} className="btn btn-outline-info btn-sm px-3 rounded-pill fw-medium">
+                      <i className="bi bi-download me-1"></i>Install App
+                    </button>
+                  </li>
+                )}
+                <li className="nav-item d-flex gap-2">
+                  <Link to="/customer/login" className="btn btn-outline-primary btn-sm px-3 rounded-pill fw-medium">
+                    Login
+                  </Link>
+                  <Link to="/customer/register" className="btn btn-primary btn-sm px-3 rounded-pill fw-medium">
+                    Register
+                  </Link>
+                </li>
+              </>
             )}
           </ul>
         </div>

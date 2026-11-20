@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
 const CustomerLogin = () => {
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = searchParams.get('redirect') || '/customer/dashboard';
@@ -18,12 +19,12 @@ const CustomerLogin = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!identifier.trim() || !password) {
-      addToast('Please enter your email or username and password', 'warning');
+      addToast('Please enter your username, email, or mobile number and password', 'warning');
       return;
     }
 
     setLoading(true);
-    const result = await login('customer', identifier.trim(), password);
+    const result = await login('customer', identifier.trim(), password, rememberMe);
     setLoading(false);
 
     if (result.success) {
@@ -48,16 +49,22 @@ const CustomerLogin = () => {
               <p className="text-muted small">Access your SMP orders, cart, wishlist, and profile</p>
             </div>
 
+            {location.state?.registrationSuccess && (
+              <div className="alert alert-success" role="status">
+                {location.state.registrationSuccess}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} autoComplete="off">
               <div className="mb-3">
-                <label className="form-label small fw-semibold text-white">Username or Email Address</label>
+                <label className="form-label small fw-semibold text-white">Username, Email, or Mobile Number</label>
                 <div className="input-group">
                   <span className="input-group-text"><i className="bi bi-person text-secondary"></i></span>
                   <input
                     type="text"
                     required
                     autoComplete="off"
-                    placeholder="Enter username or registered email"
+                    placeholder="Enter username, email, or mobile number"
                     className="form-control"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
@@ -77,7 +84,7 @@ const CustomerLogin = () => {
                   <input
                     type="password"
                     required
-                    autoComplete="new-password"
+                    autoComplete="off"
                     placeholder="Enter your password"
                     className="form-control"
                     value={password}
@@ -111,7 +118,7 @@ const CustomerLogin = () => {
             <div className="text-center small text-muted">
               Don't have an account?{' '}
               <Link to="/customer/register" className="text-info fw-bold text-decoration-none">
-                Register with OTP
+                Create an account
               </Link>
             </div>
           </div>
