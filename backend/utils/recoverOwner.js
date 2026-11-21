@@ -1,6 +1,6 @@
 /**
  * SMP Shop App - Master Owner Recovery & Admin Provisioning Utility
- * Recovers, updates, or sets up the Master Owner and Admin accounts with complete dual-sync.
+ * Recovers, updates, or sets up the Master Owner and Admin accounts.
  */
 
 const path = require('path');
@@ -9,7 +9,6 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const connectDB = require('../config/db');
-const { supabase } = require('../config/supabase');
 
 // Models
 const User = require('../models/User');
@@ -151,88 +150,7 @@ async function recoverOwnerAndAdmin(options = {}) {
 
   console.log(`✔ Synchronized Owner Profile document (${ownerDoc.ownerId})`);
 
-  // 3. Supabase Auth Synchronization for Owner
-  console.log('\n[Supabase Sync] Synchronizing Owner with Supabase Auth & Profile...');
-  try {
-    let authUserId = null;
-
-    // Check if user already exists in Supabase GoTrue
-    const { data: usersList } = await supabase.auth.admin.listUsers();
-    const existingSupabaseUser = usersList?.users?.find(
-      u => u.email?.toLowerCase() === ownerConfig.email
-    );
-
-    if (existingSupabaseUser) {
-      authUserId = existingSupabaseUser.id;
-      await supabase.auth.admin.updateUserById(authUserId, {
-        password: ownerConfig.password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: ownerConfig.name,
-          username: ownerConfig.username
-        },
-        app_metadata: { role: 'owner' }
-      });
-      console.log(`✔ Updated existing Supabase Auth account (${authUserId})`);
-    } else {
-      const { data: created, error: createError } = await supabase.auth.admin.createUser({
-        email: ownerConfig.email,
-        password: ownerConfig.password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: ownerConfig.name,
-          username: ownerConfig.username
-        },
-        app_metadata: { role: 'owner' }
-      });
-      if (!createError && created?.user) {
-        authUserId = created.user.id;
-        console.log(`✔ Created Supabase Auth account for Owner (${authUserId})`);
-      } else if (createError) {
-        console.warn(`[Supabase Auth Note]: ${createError.message}`);
-      }
-    }
-
-    if (authUserId) {
-      // Upsert profile in Supabase
-      await supabase.from('profiles').upsert({
-        id: authUserId,
-        email: ownerConfig.email,
-        username: ownerConfig.username,
-        full_name: ownerConfig.name,
-        phone: `+91${ownerConfig.phone.slice(-10)}`,
-        legacy_mongo_id: String(ownerUser._id),
-        is_active: true,
-        is_email_verified: true,
-        is_phone_verified: true,
-        updated_at: new Date().toISOString()
-      });
-
-      // Upsert role in Supabase
-      const { data: existingRole } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', authUserId)
-        .maybeSingle();
-
-      if (existingRole) {
-        await supabase
-          .from('user_roles')
-          .update({ role: 'owner', updated_at: new Date().toISOString() })
-          .eq('id', existingRole.id);
-      } else {
-        await supabase.from('user_roles').insert({
-          user_id: authUserId,
-          role: 'owner'
-        });
-      }
-      console.log('✔ Supabase Profile & User Role set to "owner"');
-    }
-  } catch (supaErr) {
-    console.warn(`[Supabase Dual-Sync Note] Non-critical warning: ${supaErr.message}`);
-  }
-
-  // 4. Provision / Update Admin Account
+  // 3. Provision / Update Admin Account
   console.log('\n[Admin Setup] Configuring Store Administrator account...');
   let adminUser = await User.findOne({
     $or: [

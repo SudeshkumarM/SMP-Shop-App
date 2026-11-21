@@ -16,8 +16,6 @@ const { apiRateLimiter } = require('./middleware/rateLimiter');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-require('./config/supabase');
-
 if (!process.env.JWT_SECRET?.trim() || process.env.JWT_SECRET.startsWith('YOUR_')) {
   throw new Error('[Auth] Required environment variable JWT_SECRET is missing or still a placeholder.');
 }
@@ -102,10 +100,6 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api', apiRateLimiter);
 
-app.use('/api', (req, res, next) => {
-  connectDB().then(() => next()).catch(next);
-});
-
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/customer', customerRoutes);
@@ -174,7 +168,8 @@ server.on('error', (err) => {
                   });
                 })
                 .catch((error) => {
-                  console.error('[SMP Server] Database startup failed:', error.message);
+                  console.error('[SMP Server] Fatal: MongoDB connection failed after port recovery. Server cannot start.');
+                  console.error(`[SMP Server] Error: ${error.message}`);
                   process.exit(1);
                 });
             }
@@ -194,9 +189,18 @@ server.on('error', (err) => {
 });
 
 if (require.main === module && !isVercel) {
-  server.listen(PORT, 2048, () => {
-    console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  });
+  // Connect to MongoDB first, then start server
+  connectDB()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`[SMP Server] Running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error('[SMP Server] Fatal: MongoDB connection failed. Server cannot start.');
+      console.error(`[SMP Server] Error: ${error.message}`);
+      process.exit(1);
+    });
 }
 
 process.on('unhandledRejection', (err) => {

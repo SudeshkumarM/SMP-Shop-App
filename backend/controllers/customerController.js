@@ -1,6 +1,5 @@
 const Customer = require('../models/Customer');
 const Product = require('../models/Product');
-const { syncCustomerAddressesToSupabase } = require('../services/supabaseCustomerAuth');
 
 /**
  * @desc    Get Customer Wishlist
@@ -115,7 +114,6 @@ const addAddress = async (req, res) => {
     });
 
     await customer.save();
-    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
     res.status(201).json({ success: true, message: 'Address saved successfully', addresses: customer.addresses });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -159,7 +157,6 @@ const updateAddress = async (req, res) => {
     }
 
     await customer.save();
-    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
     res.status(200).json({ success: true, message: 'Address updated successfully', addresses: customer.addresses });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -179,7 +176,6 @@ const deleteAddress = async (req, res) => {
     }
     customer.addresses.pull(req.params.addressId);
     await customer.save();
-    await syncCustomerAddressesToSupabase(req.user._id, customer.addresses);
     res.status(200).json({ success: true, message: 'Address deleted', addresses: customer.addresses });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

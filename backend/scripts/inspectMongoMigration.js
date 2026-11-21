@@ -6,12 +6,12 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const modelTargets = {
-  Admin: 'admins, profiles, user_roles',
+  Admin: 'admins',
   Branch: 'branches',
   Cart: 'carts, cart_items',
   Category: 'categories',
   Coupon: 'coupons, coupon_notifications',
-  Customer: 'customers, customer_addresses, customer_wishlist_items, profiles, user_roles',
+  Customer: 'customers, customer_addresses, customer_wishlist_items',
   Expense: 'expenses',
   Investment: 'investments',
   Inventory: 'inventory, inventory_transactions',
@@ -19,16 +19,16 @@ const modelTargets = {
   Notification: 'notifications (legacy model; verify usage before migration)',
   Order: 'orders, order_items',
   OrderItem: 'order_items (standalone legacy records need review)',
-  OtpVerification: 'not migrated (legacy model unused; recovery OTPs use auth_otp_verifications)',
-  Owner: 'owner_profiles, profiles, user_roles',
+  OtpVerification: 'OTP verification records for password recovery',
+  Owner: 'owner_profiles',
   Payment: 'payments',
   Product: 'products, product_variants, product_images',
   QRCode: 'qr_codes',
   ScannerSettings: 'scanner_settings',
   Shop: 'shops (nested settings remain in shops.settings)',
-  Staff: 'staff, profiles, user_roles',
+  Staff: 'staff',
   Supplier: 'suppliers',
-  User: 'Supabase Auth users, profiles, user_roles',
+  User: 'User authentication records (all roles)',
   WhatsAppLog: 'whatsapp_logs'
 };
 
@@ -66,7 +66,7 @@ const inspect = async () => {
       const count = await model.estimatedDocumentCount();
       console.log(`${model.modelName} (${model.collection.name}): ${count} -> ${modelTargets[model.modelName]}`);
     }
-    console.log('No source records were read individually or modified. No Supabase connection was made.');
+    console.log('No source records were read individually or modified.');
   } finally {
     await mongoose.disconnect();
   }

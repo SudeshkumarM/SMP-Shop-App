@@ -1,13 +1,14 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
-const { supabase } = require('../config/supabase');
 const SmsService = require('./smsService');
 const { sendAuthVerificationCode } = require('./emailService');
 const { normalizeEmail, normalizeIndianMobile } = require('../utils/authValidation');
 const OtpVerification = require('../models/OtpVerification');
 
-const TABLE = 'auth_otp_verifications';
 const OTP_EXPIRY_SECONDS = 5 * 60;
+const RESEND_COOLDOWN_SECONDS = 60;
+const MAX_RESEND_LIMIT = 5;
+const MAX_ATTEMPTS = 5;
 
 class OtpServiceError extends Error {
   constructor(message, statusCode = 400) {
@@ -57,82 +58,83 @@ const createAndSendOtp = async (
     throw new OtpServiceError('Choose a valid recovery method.');
   }
 
+  // Check for existing active OTP and enforce cooldown/resend limits
+  const existingRecord = await OtpVerification.findOne({
+    identifier: normalizedIdentifier,
+    purpose,
+    expiresAt: { $gt: new Date() }
+  });
+
+  if (existingRecord) {
+    // Check resend cooldown
+    const timeSinceLastResend = Date.now() - existingRecord.lastResentAt.getTime();
+    if (timeSinceLastResend < RESEND_COOLDOWN_SECONDS * 1000) {
+      const remainingCooldown = Math.ceil((RESEND_COOLDOWN_SECONDS * 1000 - timeSinceLastResend) / 1000);
+      throw new OtpServiceError(`Please wait ${remainingCooldown} seconds before requesting another code.`, 429);
+    }
+
+    // Check resend limit
+    if (existingRecord.resendCount >= MAX_RESEND_LIMIT) {
+      throw new OtpServiceError('Maximum resend limit reached. Try again after the code expires.', 429);
+    }
+
+    // Update existing record
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const otpHash = hashOtp(normalizedIdentifier, purpose, otp);
+
+    existingRecord.otpHash = otpHash;
+    existingRecord.attempts = 0;
+    existingRecord.isVerified = false;
+    existingRecord.expiresAt = new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000);
+    existingRecord.resendCount += 1;
+    existingRecord.lastResentAt = new Date();
+    await existingRecord.save();
+
+    try {
+      await sendOtp(normalizedIdentifier, channel, otp);
+    } catch (error) {
+      // Rollback on send failure
+      existingRecord.resendCount -= 1;
+      await existingRecord.save();
+      console.error(`[Auth OTP] ${channel.toUpperCase()} provider rejected verification request.`);
+      throw new OtpServiceError(
+        channel === 'sms'
+          ? 'Unable to send SMS at this time. Check provider configuration and try again.'
+          : 'Unable to send email at this time. Check email provider configuration and try again.',
+        502
+      );
+    }
+
+    return {
+      success: true,
+      otpId: String(existingRecord._id),
+      otp,
+      identifier: normalizedIdentifier,
+      channel,
+      expiresInSeconds: OTP_EXPIRY_SECONDS
+    };
+  }
+
+  // Create new OTP record
   const otp = crypto.randomInt(100000, 1000000).toString();
   const otpHash = hashOtp(normalizedIdentifier, purpose, otp);
 
-  let otpId = null;
-  let useMongoFallback = false;
-
-  try {
-    const { data, error: createError } = await supabase.rpc('begin_auth_otp', {
-      p_identifier: normalizedIdentifier,
-      p_purpose: purpose,
-      p_channel: channel,
-      p_otp_hash: otpHash,
-      p_password_hash: null,
-      p_registration_payload: null
-    });
-
-    if (createError) {
-      if (
-        createError.code === '42P01' ||
-        createError.code === 'PGRST202' ||
-        createError.message?.includes('does not exist')
-      ) {
-        useMongoFallback = true;
-      } else {
-        const cooldown = createError.message?.match(/OTP_RESEND_COOLDOWN:(\d+)/);
-        if (cooldown) {
-          throw new OtpServiceError(`Please wait ${cooldown[1]} seconds before requesting another code.`, 429);
-        }
-        if (createError.message?.includes('OTP_RESEND_LIMIT')) {
-          throw new OtpServiceError('Maximum resend limit reached. Try again after the code expires.', 429);
-        }
-        console.error(`[Auth OTP] Could not create verification request (${createError.code || 'database error'}).`);
-        useMongoFallback = true;
-      }
-    } else {
-      otpId = data;
-    }
-  } catch (err) {
-    if (err instanceof OtpServiceError) throw err;
-    useMongoFallback = true;
-  }
-
-  if (useMongoFallback) {
-    const mongoRecord = await OtpVerification.findOneAndUpdate(
-      { identifier: normalizedIdentifier, purpose },
-      {
-        identifier: normalizedIdentifier,
-        purpose,
-        otpHash,
-        attempts: 0,
-        isVerified: false,
-        expiresAt: new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000)
-      },
-      { upsert: true, new: true }
-    );
-    otpId = String(mongoRecord._id);
-  }
+  const mongoRecord = await OtpVerification.create({
+    identifier: normalizedIdentifier,
+    purpose,
+    otpHash,
+    attempts: 0,
+    resendCount: 0,
+    lastResentAt: new Date(),
+    expiresAt: new Date(Date.now() + OTP_EXPIRY_SECONDS * 1000),
+    isVerified: false
+  });
 
   try {
     await sendOtp(normalizedIdentifier, channel, otp);
   } catch (error) {
-    if (!useMongoFallback && otpId) {
-      await supabase
-        .from(TABLE)
-        .update({
-          verification_status: 'expired',
-          otp_hash: '0'.repeat(64),
-          password_hash: null,
-          registration_payload: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', otpId);
-    } else if (otpId && mongoose.Types.ObjectId.isValid(otpId)) {
-      await OtpVerification.findByIdAndDelete(otpId);
-    }
-
+    // Delete record on send failure
+    await OtpVerification.findByIdAndDelete(mongoRecord._id);
     console.error(`[Auth OTP] ${channel.toUpperCase()} provider rejected verification request.`);
     throw new OtpServiceError(
       channel === 'sms'
@@ -144,8 +146,8 @@ const createAndSendOtp = async (
 
   return {
     success: true,
-    otpId,
-    otp, // Available for development/testing if needed
+    otpId: String(mongoRecord._id),
+    otp,
     identifier: normalizedIdentifier,
     channel,
     expiresInSeconds: OTP_EXPIRY_SECONDS
@@ -161,91 +163,31 @@ const verifyOtp = async (identifier, otp, purpose, channel) => {
     return { success: false, message: 'Enter the 6-digit verification code.' };
   }
 
-  let record = null;
-  let useMongoFallback = false;
-
-  try {
-    const { data, error: lookupError } = await supabase
-      .from(TABLE)
-      .select('id, channel, otp_hash, verification_status, expires_at')
-      .eq('identifier', normalizedIdentifier)
-      .eq('purpose', purpose)
-      .maybeSingle();
-
-    if (lookupError) {
-      if (lookupError.code === '42P01' || lookupError.message?.includes('does not exist')) {
-        useMongoFallback = true;
-      } else {
-        useMongoFallback = true;
-      }
-    } else if (!data) {
-      useMongoFallback = true;
-    } else {
-      record = data;
-    }
-  } catch (err) {
-    if (err instanceof OtpServiceError) throw err;
-    useMongoFallback = true;
-  }
-
-  if (useMongoFallback) {
-    const suppliedHash = hashOtp(normalizedIdentifier, purpose, String(otp));
-    const mongoRecord = await OtpVerification.findOne({
-      identifier: normalizedIdentifier,
-      purpose,
-      expiresAt: { $gt: new Date() },
-      isVerified: false
-    });
-
-    if (!mongoRecord) {
-      return { success: false, message: 'No active verification request was found. Request a new code.' };
-    }
-    if (mongoRecord.attempts >= 5) {
-      return { success: false, message: 'Too many incorrect attempts. Request a new code.' };
-    }
-    if (mongoRecord.otpHash !== suppliedHash) {
-      mongoRecord.attempts += 1;
-      await mongoRecord.save();
-      return { success: false, message: 'The verification code is incorrect.' };
-    }
-
-    return {
-      success: true,
-      otpId: String(mongoRecord._id)
-    };
-  }
-
-  if (record.channel !== channel) {
-    return { success: false, message: 'Choose the same recovery method used to request the code.' };
-  }
-
   const suppliedHash = hashOtp(normalizedIdentifier, purpose, String(otp));
-  const { data: verificationStatus, error: verifyError } = await supabase.rpc('verify_auth_otp', {
-    p_otp_id: record.id,
-    p_otp_hash: suppliedHash
+  const mongoRecord = await OtpVerification.findOne({
+    identifier: normalizedIdentifier,
+    purpose,
+    expiresAt: { $gt: new Date() },
+    isVerified: false
   });
 
-  if (verifyError) {
-    console.error(`[Auth OTP] Could not verify code (${verifyError.code || 'database error'}).`);
-    throw new OtpServiceError('Verification service is temporarily unavailable.', 503);
+  if (!mongoRecord) {
+    return { success: false, message: 'No active verification request was found. Request a new code.' };
   }
 
-  if (verificationStatus !== 'verified') {
-    const messages = {
-      not_found: 'No active verification request was found. Request a new code.',
-      consumed: 'This verification code has already been used.',
-      expired: 'The verification code has expired. Request a new code.',
-      locked: 'Too many incorrect attempts. Request a new code.'
-    };
-    return {
-      success: false,
-      message: messages[verificationStatus] || 'The verification code is incorrect.'
-    };
+  if (mongoRecord.attempts >= MAX_ATTEMPTS) {
+    return { success: false, message: 'Too many incorrect attempts. Request a new code.' };
+  }
+
+  if (mongoRecord.otpHash !== suppliedHash) {
+    mongoRecord.attempts += 1;
+    await mongoRecord.save();
+    return { success: false, message: 'The verification code is incorrect.' };
   }
 
   return {
     success: true,
-    otpId: record.id
+    otpId: String(mongoRecord._id)
   };
 };
 
@@ -254,35 +196,7 @@ const consumeOtp = async (otpId, purpose) => {
     throw new OtpServiceError('Unsupported verification request.');
   }
 
-  if (mongoose.Types.ObjectId.isValid(otpId)) {
-    await OtpVerification.findByIdAndUpdate(otpId, { isVerified: true });
-    return;
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .update({
-        verification_status: 'consumed',
-        registration_status: 'not_applicable',
-        otp_hash: '0'.repeat(64),
-        password_hash: null,
-        registration_payload: null,
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', otpId)
-      .eq('verification_status', 'verified')
-      .select('id')
-      .maybeSingle();
-
-    if (error || !data) {
-      console.error(`[Auth OTP] Could not consume verification record (${error?.code || 'record unavailable'}).`);
-      throw new OtpServiceError('Verification could not be completed. Request a new code.', 503);
-    }
-  } catch (err) {
-    if (err instanceof OtpServiceError) throw err;
-  }
+  await OtpVerification.findByIdAndUpdate(otpId, { isVerified: true });
 };
 
 module.exports = {

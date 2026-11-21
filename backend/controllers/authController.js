@@ -21,20 +21,8 @@ const {
   isStrongPassword,
   validateRegistration
 } = require('../utils/authValidation');
-const {
-  SupabaseCustomerAuthError,
-  assertNoCustomerDuplicate,
-  createCustomerIdentity,
-  authenticateCustomer,
-  updateCustomerPassword,
-  deleteCustomerIdentityByMongoId,
-  syncCustomerProfileToSupabase
-} = require('../services/supabaseCustomerAuth');
 const respondAuthError = (res, error, operation, fallbackMessage) => {
-  if (
-    error instanceof OtpServiceError ||
-    error instanceof SupabaseCustomerAuthError
-  ) {
+  if (error instanceof OtpServiceError) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
   if (error?.code === 11000) {
@@ -86,7 +74,6 @@ const generateToken = (user) => {
 const registerCustomer = async (req, res) => {
   let user;
   let customer;
-  let supabaseIdentityCreated = false;
   try {
     const validation = validateRegistration(req.body);
     if (validation.error) {
@@ -109,8 +96,6 @@ const registerCustomer = async (req, res) => {
       });
     }
 
-    await assertNoCustomerDuplicate({ email, username, phone });
-
     const registration = {
       fullName,
       username,
@@ -123,12 +108,14 @@ const registerCustomer = async (req, res) => {
     };
     const defaultShop = await Shop.findOne({ isActive: true }).select('_id');
     const customerId = createCustomerCode();
+    
+    // Create User with real password (bcrypt hashed by pre-save hook)
     user = await User.create({
       name: fullName,
       username,
       email,
       phone,
-      password: crypto.randomBytes(32).toString('hex'),
+      password,
       role: 'customer',
       isPhoneVerified: false,
       shopId: defaultShop ? defaultShop._id : null
@@ -145,27 +132,10 @@ const registerCustomer = async (req, res) => {
       addresses: createCustomerAddresses(registration)
     });
 
-    await createCustomerIdentity({
-      profile: registration,
-      password,
-      mongoUserId: user._id,
-      customerId,
-      addresses: createCustomerAddresses(registration).map((address) => ({
-        title: address.title,
-        street: address.street,
-        city: address.city,
-        state: address.state,
-        pincode: address.pincode,
-        country: address.country,
-        is_default: address.isDefault
-      }))
-    });
-    supabaseIdentityCreated = true;
-
     return res.status(201).json({
       success: true,
       welcomeMessage: `Welcome ${user.name}!`,
-      message: `Registration successful, ${user.name}. Check your email to confirm your account before signing in.`,
+      message: `Registration successful, ${user.name}. You can now sign in with your credentials.`,
       user: {
         id: user._id,
         name: user.name,
@@ -177,13 +147,6 @@ const registerCustomer = async (req, res) => {
       }
     });
   } catch (error) {
-    if (supabaseIdentityCreated && user?._id) {
-      try {
-        await deleteCustomerIdentityByMongoId(user._id);
-      } catch {
-        console.error('[Auth] Supabase customer rollback failed.');
-      }
-    }
     if (customer?._id) {
       await Customer.deleteOne({ _id: customer._id }).catch(() => {
         console.error('[Auth] Customer profile rollback failed.');
@@ -212,44 +175,38 @@ const loginCustomer = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide your username, email, or mobile number and password.' });
     }
 
-    let user = null;
-    let supabaseUnavailable = null;
-    try {
-      user = await authenticateCustomer(inputId, password, User);
-    } catch (error) {
-      if (!(error instanceof SupabaseCustomerAuthError) || error.statusCode !== 503) {
-        throw error;
-      }
-      supabaseUnavailable = error;
-    }
-
-    if (!user) {
-      const normalizedPhone = normalizeIndianMobile(inputId);
-      const phoneFilters = INDIAN_MOBILE_PATTERN.test(normalizedPhone)
-        ? [{ phone: normalizedPhone }, { phone: `+91${normalizedPhone}` }]
-        : [{ phone: inputId }];
-      user = await User.findOne({
+    const normalizedPhone = normalizeIndianMobile(inputId);
+    const phoneFilters = INDIAN_MOBILE_PATTERN.test(normalizedPhone)
+      ? [{ phone: normalizedPhone }, { phone: `+91${normalizedPhone}` }]
+      : [{ phone: inputId }];
+    
+    const user = await User.findOne({
       $or: [
         { email: normalizeEmail(inputId) },
         { username: normalizeUsername(inputId) },
         ...phoneFilters
       ]
-      }).select('+password');
+    }).select('+password');
 
-      if (!user || user.role !== 'customer') {
-        if (supabaseUnavailable) throw supabaseUnavailable;
-        return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
-      }
+    if (!user || user.role !== 'customer') {
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
+    }
 
-      const isMatch = await user.matchPassword(password);
-      if (!isMatch) {
-        if (supabaseUnavailable) throw supabaseUnavailable;
-        return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
-      }
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid username/email or password.' });
     }
 
     if (!user.isActive) {
       return res.status(403).json({ success: false, message: 'Your account has been deactivated. Please contact support.' });
+    }
+
+    if (user.requiresPasswordReset) {
+      return res.status(403).json({
+        success: false,
+        message: 'Password reset required. Please use the forgot password flow to set a new password.',
+        requiresPasswordReset: true
+      });
     }
 
     User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
@@ -675,10 +632,8 @@ const resetPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (user.role === 'customer') {
-      await updateCustomerPassword(user._id, newPassword);
-    }
     user.password = newPassword;
+    user.requiresPasswordReset = false;
     await user.save();
     await consumeOtp(verification.otpId, 'FORGOT_PASSWORD');
 
@@ -739,12 +694,10 @@ const resetPasswordWithToken = async (req, res) => {
       });
     }
 
-    if (user.role === 'customer') {
-      await updateCustomerPassword(user._id, newPassword);
-    }
     user.password = newPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
+    user.requiresPasswordReset = false;
     await user.save();
 
     res.status(200).json({
@@ -846,12 +799,6 @@ const updateProfile = async (req, res) => {
         { userId: user._id },
         { fullName: user.name, username: user.username, email: user.email, phone: user.phone }
       );
-      await syncCustomerProfileToSupabase(user._id, {
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        phone: user.phone
-      });
     } else if (user.role === 'staff') {
       await Staff.findOneAndUpdate(
         { userId: user._id },

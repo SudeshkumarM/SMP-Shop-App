@@ -89,6 +89,10 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpire: {
     type: Date,
     select: false
+  },
+  requiresPasswordReset: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
