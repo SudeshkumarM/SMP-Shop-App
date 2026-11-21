@@ -45,7 +45,15 @@ const connectDB = async () => {
   const isVercel = Boolean(process.env.VERCEL);
   const uri = process.env.MONGO_URI;
 
-  console.log('[Database] Initializing MongoDB connection...');
+  if (isVercel) {
+    // In Vercel serverless, log only once per cold start
+    if (!global.__smpHasLoggedConnection) {
+      global.__smpHasLoggedConnection = true;
+      console.log('[Database] Initializing MongoDB connection (Vercel Serverless)...');
+    }
+  } else {
+    console.log('[Database] Initializing MongoDB connection...');
+  }
 
   if (!uri) {
     if (isVercel) {
@@ -72,12 +80,16 @@ const connectDB = async () => {
 
   const connect = async () => {
     if (mongoose.connection.readyState === 1) {
-      console.log('[Database] MongoDB already connected.');
+      if (!isVercel) {
+        console.log('[Database] MongoDB already connected.');
+      }
       return mongoose;
     }
 
     if (!connectionCache.promise) {
-      console.log(`[Database] Connecting to MongoDB...`);
+      if (!isVercel) {
+        console.log(`[Database] Connecting to MongoDB...`);
+      }
       connectionCache.promise = mongoose.connect(finalUri, poolOptions);
     }
 
