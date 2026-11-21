@@ -1,93 +1,22 @@
 
 const mongoose = require('mongoose');
-const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-
-let mongodProcess = null;
 
 const connectionCache =
   global.__smpMongoConnection || {
     connection: null,
-    promise: null
+    promise: null,
+    uri: null
   };
 
 global.__smpMongoConnection = connectionCache;
 
-// --------------------------------------------------
-// LOCAL MONGODB DIRECTORY
-// --------------------------------------------------
-
-const ensureDbDir = () => {
-  if (process.env.VERCEL) {
+const validateMongoUri = (uri) => {
+  if (!uri) {
     throw new Error(
-      'Local MongoDB startup is disabled on Vercel.'
+      'MONGO_URI is required and must target the Atlas test database.'
     );
   }
 
-  const dbDir = path.join(__dirname, '..', 'data', 'db');
-
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-  }
-
-  return dbDir;
-};
-
-// --------------------------------------------------
-// LOCAL MONGODB AUTO START
-// --------------------------------------------------
-
-const trySpawnMongod = async () => {
-  if (process.env.VERCEL || mongodProcess) {
-    return;
-  }
-
-  const defaultPath =
-    'C:\\Program Files\\MongoDB\\Server\\8.2\\bin\\mongod.exe';
-
-  if (!fs.existsSync(defaultPath)) {
-    console.warn('[Database] Local mongod.exe not found.');
-    return;
-  }
-
-  const dbDir = ensureDbDir();
-
-  try {
-    mongodProcess = spawn(
-      defaultPath,
-      ['--dbpath', dbDir, '--port', '27017'],
-      {
-        detached: false,
-        stdio: 'ignore'
-      }
-    );
-
-    mongodProcess.on('error', (error) => {
-      console.error(
-        '[Database] Local MongoDB startup failed:',
-        error.message
-      );
-      mongodProcess = null;
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-
-  } catch (error) {
-    mongodProcess = null;
-
-    console.error(
-      '[Database] Could not start local MongoDB:',
-      error.message
-    );
-  }
-};
-
-// --------------------------------------------------
-// PRODUCTION URI VALIDATION
-// --------------------------------------------------
-
-const validateProductionUri = (uri) => {
   let parsed;
 
   try {
@@ -106,6 +35,12 @@ const validateProductionUri = (uri) => {
     );
   }
 
+  if (!parsed.hostname.toLowerCase().endsWith('.mongodb.net')) {
+    throw new Error(
+      'MONGO_URI must point to a MongoDB Atlas cluster.'
+    );
+  }
+
   let databaseName;
 
   try {
@@ -120,14 +55,10 @@ const validateProductionUri = (uri) => {
 
   if (databaseName !== 'test') {
     throw new Error(
-      "Production MONGO_URI must explicitly target the 'test' database."
+      "MONGO_URI must explicitly target the 'test' database."
     );
   }
 };
-
-// --------------------------------------------------
-// WAIT FOR DISCONNECTING CONNECTION
-// --------------------------------------------------
 
 const waitForDisconnect = async () => {
   const startedAt = Date.now();
@@ -147,69 +78,60 @@ const waitForDisconnect = async () => {
   }
 };
 
-// --------------------------------------------------
-// MONGODB CONNECTION
-// --------------------------------------------------
+const assertTestDatabase = () => {
+  if (mongoose.connection.name !== 'test') {
+    throw new Error(
+      "MongoDB connection is not using the required 'test' database."
+    );
+  }
+};
 
 const connectDB = async () => {
-  const isVercel = Boolean(process.env.VERCEL);
   const uri = process.env.MONGO_URI;
+  validateMongoUri(uri);
 
-  if (!uri && isVercel) {
+  if (connectionCache.uri && connectionCache.uri !== uri) {
     throw new Error(
-      'MONGO_URI is required in Vercel Production environment variables.'
+      'MONGO_URI changed while the MongoDB connection is cached. Restart the process to use a different Atlas cluster.'
     );
   }
 
-  const finalUri =
-    uri || 'mongodb://127.0.0.1:27017/smp_db';
-
-  if (isVercel) {
-    validateProductionUri(finalUri);
+  if (mongoose.connection.readyState === 1) {
+    assertTestDatabase();
+    connectionCache.connection = mongoose.connection;
+    connectionCache.uri = uri;
+    return mongoose;
   }
 
   const poolOptions = {
     serverSelectionTimeoutMS: 30000,
-    maxPoolSize: isVercel ? 15 : 200,
-    minPoolSize: isVercel ? 2 : 20,
-    socketTimeoutMS: 60000,
+    maxPoolSize: 15,
+    minPoolSize: 0,
+    socketTimeoutMS: 45000,
     maxIdleTimeMS: 30000
   };
 
-  // State 1: Already connected
-  if (mongoose.connection.readyState === 1) {
-    return mongoose;
-  }
-
-  // Reuse an existing connection attempt
   if (connectionCache.promise) {
     return connectionCache.promise;
   }
 
-  // Create one shared connection operation
-  const connectPromise = (async () => {
+  connectionCache.uri = uri;
 
-    // State 2: Another operation is connecting
+  const connectPromise = (async () => {
     if (mongoose.connection.readyState === 2) {
       await mongoose.connection.asPromise();
-
-      if (mongoose.connection.readyState === 1) {
-        return mongoose;
-      }
-    }
-
-    // State 3: Wait until disconnect completes
-    if (mongoose.connection.readyState === 3) {
+    } else if (mongoose.connection.readyState === 3) {
       await waitForDisconnect();
     }
 
-    // Check again before creating a connection
     if (mongoose.connection.readyState === 1) {
+      assertTestDatabase();
+      connectionCache.connection = mongoose.connection;
       return mongoose;
     }
 
-    // State 0: Disconnected - establish connection
-    await mongoose.connect(finalUri, poolOptions);
+    await mongoose.connect(uri, poolOptions);
+    assertTestDatabase();
 
     connectionCache.connection = mongoose.connection;
 
@@ -217,7 +139,7 @@ const connectDB = async () => {
       connectionCache.hasLogged = true;
 
       console.log(
-        `[Database] MongoDB connected: ${mongoose.connection.name}`
+        `[Database] MongoDB Atlas connected to database: ${mongoose.connection.name}`
       );
     }
 
@@ -232,61 +154,29 @@ const connectDB = async () => {
 
   } catch (error) {
     connectionCache.connection = null;
+    connectionCache.uri = null;
     throw error;
 
   } finally {
-    // Clear only the promise created by this operation
     if (connectionCache.promise === connectPromise) {
       connectionCache.promise = null;
     }
   }
 };
 
-// --------------------------------------------------
-// EXPORTED DATABASE FUNCTION
-// --------------------------------------------------
-
 const exportedConnectDB = async () => {
   try {
     return await connectDB();
 
   } catch (error) {
-    // Local Windows fallback only
-    if (
-      process.platform === 'win32' &&
-      !process.env.VERCEL &&
-      !process.env.MONGO_URI
-    ) {
-      console.warn(
-        '[Database] Attempting local MongoDB startup fallback...'
-      );
-
-      await trySpawnMongod();
-
-      return connectDB();
-    }
-
     console.error(
-      '[Database] MongoDB connection failed:',
-      error.message
+      '[Database] MongoDB connection failed. Check Atlas network access, database-user credentials, and MONGO_URI configuration.',
+      error.name || 'Error',
+      error.code || 'unknown'
     );
 
     throw error;
   }
 };
-
-// --------------------------------------------------
-// CLEANUP
-// --------------------------------------------------
-
-process.on('exit', () => {
-  if (mongodProcess) {
-    try {
-      mongodProcess.kill();
-    } catch (error) {
-      // Ignore shutdown errors
-    }
-  }
-});
 
 module.exports = exportedConnectDB;

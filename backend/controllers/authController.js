@@ -909,16 +909,7 @@ const changePassword = async (req, res) => {
     }
 
     const mongoPasswordMatches = await user.matchPassword(currentPassword);
-    let supabaseCustomerAuthenticated = false;
-    if (user.role === 'customer' && !mongoPasswordMatches) {
-      const authenticatedUser = await authenticateCustomer(user.email, currentPassword, User);
-      supabaseCustomerAuthenticated = Boolean(
-        authenticatedUser && String(authenticatedUser._id) === String(user._id)
-      );
-    }
-
-    const isMatch = mongoPasswordMatches || supabaseCustomerAuthenticated;
-    if (!isMatch) {
+    if (!mongoPasswordMatches) {
       return res.status(400).json({ success: false, message: 'Current password does not match' });
     }
 
@@ -929,9 +920,6 @@ const changePassword = async (req, res) => {
       });
     }
 
-    if (user.role === 'customer') {
-      await updateCustomerPassword(user._id, newPassword);
-    }
     user.password = newPassword;
     await user.save();
 

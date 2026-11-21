@@ -46,7 +46,7 @@ SMP provides **four completely segregated user modules**, each with isolated rou
 - **Notifications**: MSG91/SMTP password-recovery codes
 
 ### Database Layer
-- **Engine**: MongoDB Community Server v8.2+ (`mongodb://127.0.0.1:27017/smp_db`)
+- **Engine**: MongoDB Atlas, using the `test` database for local development and production
 - **ODM**: Mongoose ODM with normalized schemas, compound indexes, and auto-timestamps
 - **Multi-Tenant Design**: Every operational document is scoped with `shopId` and `branchId`
 
@@ -56,21 +56,19 @@ SMP provides **four completely segregated user modules**, each with isolated rou
 
 Do not use demo credentials in production. Provision owner credentials through the secured owner setup procedure; do not put account passwords in source control or documentation.
 
-Set these variables in `backend/.env` for local development and in the backend deployment environment for production:
+Set these variables in `backend/.env` for local development and in Vercel Environment Variables for production:
 
-- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: backend-only Supabase connection.
+- `MONGO_URI`: MongoDB Atlas URI explicitly targeting `/test`.
+- `JWT_SECRET`: high-entropy secret for SMP API tokens.
 - `OTP_HASH_SECRET`: randomly generated secret with at least 32 characters, used to HMAC OTP values before storage.
-- `JWT_SECRET`: separate high-entropy secret for SMP API tokens.
 - `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`, and `MSG91_OTP_VARIABLE`: MSG91 Flow credentials and the exact OTP variable configured in the approved template.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `EMAIL_FROM`: SMTP configuration for email recovery codes.
 - `OWNER_SETUP_TOKEN`: separate random token required by the one-time owner initialization endpoint.
 - `OWNER_INITIAL_NAME`, `OWNER_INITIAL_USERNAME`, `OWNER_INITIAL_EMAIL`, `OWNER_INITIAL_PASSWORD`, and `OWNER_INITIAL_PHONE`: optional private values used by the local owner setup script. Set them in `backend/.env`, then run `node backend/utils/setupOwner.js`; add `--update` only when intentionally rotating an existing owner's credentials.
 
-Customer registration creates a Supabase Auth account after field validation and sends an email confirmation link. Customers must confirm the email before signing in. Registration does not use CAPTCHA, send a mobile OTP, or verify mobile ownership; mobile numbers remain unverified contact details. Password recovery continues to use a separate verification code through the user's selected email or mobile method. Configure Supabase Auth's site URL, redirect allow-list, and email delivery settings for the application.
+Customer credentials and application records are stored in MongoDB Atlas `test`. Customer registration does not use CAPTCHA, send a mobile OTP, or verify mobile ownership; mobile numbers remain unverified contact details. Password recovery uses a separate verification code through the user's selected email or mobile method.
 
 If mobile password recovery is enabled, configure an approved MSG91 Flow template whose placeholder matches `MSG91_OTP_VARIABLE`. Complete applicable Indian DLT entity, header/sender ID, and content-template registration and approval with the provider and telecom operators before sending live traffic. The backend treats provider acceptance as an accepted request, not proof of handset delivery.
-
-Apply the SQL files in `supabase/migrations/` in order, including `20261120093000_smp_auth_otp.sql` and `20261120111000_smp_disable_registration_sms_otp.sql`. The earlier registration-CAPTCHA migration is retained for existing project history but is no longer used by customer registration. Keep Supabase Secret Keys, OTP hash secrets, MSG91 keys, SMTP passwords, `JWT_SECRET`, and `OWNER_SETUP_TOKEN` backend-only. Configure Supabase Auth email confirmation consistently with the existing account policy; do not mark email or phone verified unless it was actually verified.
 
 ---
 
@@ -110,7 +108,7 @@ Admin and Owner have complete authority to edit the Shirt name, image, price, GS
 | :--- | :--- | :--- |
 | `/customer/register` | `CustomerRegister.jsx` | Direct customer registration; phone remains unverified |
 | `/customer/verify-otp` | `CustomerVerifyOtp.jsx` | Legacy route redirects to customer registration |
-| `/customer/login` | `CustomerLogin.jsx` | Supabase Auth login by username, email, or mobile number + password |
+| `/customer/login` | `CustomerLogin.jsx` | MongoDB-backed login by username, email, or mobile number + password |
 | `/customer/forgot-password` | `ForgotPassword.jsx` | Identity verification & secure password reset |
 | `/customer/dashboard` | `CustomerDashboard.jsx` | Personal shopping metrics, recent orders, saved addresses |
 | `/customer/profile` | `CustomerProfile.jsx` | Profile update (name, username, email, phone) & password change |
@@ -258,4 +256,4 @@ npm run dev
 This concurrently launches:
 - **Backend REST API**: `http://localhost:5000`
 - **Frontend Client**: `http://localhost:5172` (and network-accessible e.g. `http://177.20.50.7:5172`)
-- **Database**: Connected to `mongodb://127.0.0.1:27017/smp_db`
+- **Database**: MongoDB Atlas `test` configured through `backend/.env`

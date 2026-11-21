@@ -8,7 +8,11 @@ module.exports = async (req, res) => {
   try {
     await connectDB();
   } catch (error) {
-    console.error('[Vercel Serverless] MongoDB connection failed:', error.message);
+    console.error(
+      '[Vercel Serverless] MongoDB connection failed:',
+      error.name || 'Error',
+      error.code || 'unknown'
+    );
     return res.status(500).json({
       success: false,
       message: 'Database connection failed. Please try again.'
@@ -16,5 +20,5 @@ module.exports = async (req, res) => {
   }
   
   // Handle request with Express app
-  app(req, res);
+  return app(req, res);
 };

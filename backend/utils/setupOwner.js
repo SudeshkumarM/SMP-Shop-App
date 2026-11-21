@@ -1,7 +1,7 @@
-const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+const connectDB = require('../config/db');
 const User = require('../models/User');
 const Owner = require('../models/Owner');
 const { validateRegistration } = require('../utils/authValidation');
@@ -12,10 +12,8 @@ const { validateRegistration } = require('../utils/authValidation');
  * Reads owner credentials from backend environment variables only.
  */
 const setupOwner = async () => {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/smp_db';
-
   try {
-    await mongoose.connect(mongoUri);
+    await connectDB();
     console.log('\n======================================================');
     console.log('  👑  SMP Secure Initial Owner Setup');
     console.log('======================================================');

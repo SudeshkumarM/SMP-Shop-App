@@ -7,7 +7,7 @@ console.log('  🛍️  Starting SMP Application Servers');
 console.log('======================================================');
 console.log('  ▸ Backend API:      http://localhost:5000');
 console.log('  ▸ Frontend Store:   http://localhost:5172');
-console.log('  ▸ Database:         mongodb://127.0.0.1:27017/smp_db');
+console.log('  ▸ Database:         MongoDB Atlas (/test; configured via backend/.env)');
 console.log('======================================================\n');
 
 // Automatically free port if previously occupied by a stale node process

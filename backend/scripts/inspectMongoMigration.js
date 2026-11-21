@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const connectDB = require('../config/db');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -44,21 +45,13 @@ const inspect = async () => {
   if (!process.argv.includes('--dry-run')) {
     throw new Error('Pass --dry-run to run this read-only source inventory.');
   }
-  if (!process.env.MONGO_URI) {
-    throw new Error('MONGO_URI must be configured; the script will not fall back to a database.');
-  }
-
   const models = loadModels();
   const unmappedModels = models.map((model) => model.modelName).filter((name) => !modelTargets[name]);
   if (unmappedModels.length > 0) {
     throw new Error(`Migration targets are missing for: ${unmappedModels.join(', ')}`);
   }
 
-  await mongoose.connect(process.env.MONGO_URI, {
-    readPreference: 'secondaryPreferred',
-    serverSelectionTimeoutMS: 5000,
-    autoIndex: false
-  });
+  await connectDB();
 
   try {
     console.log('Read-only MongoDB migration inventory (counts only):');

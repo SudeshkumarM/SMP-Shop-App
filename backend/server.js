@@ -169,7 +169,7 @@ server.on('error', (err) => {
                 })
                 .catch((error) => {
                   console.error('[SMP Server] Fatal: MongoDB connection failed after port recovery. Server cannot start.');
-                  console.error(`[SMP Server] Error: ${error.message}`);
+                  console.error(`[SMP Server] Error: ${error.name || 'Error'} (${error.code || 'unknown'})`);
                   process.exit(1);
                 });
             }
@@ -198,7 +198,7 @@ if (require.main === module && !isVercel) {
     })
     .catch((error) => {
       console.error('[SMP Server] Fatal: MongoDB connection failed. Server cannot start.');
-      console.error(`[SMP Server] Error: ${error.message}`);
+      console.error(`[SMP Server] Error: ${error.name || 'Error'} (${error.code || 'unknown'})`);
       process.exit(1);
     });
 }
