@@ -78,7 +78,7 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// Static folder for uploaded files
+// Legacy local URLs remain readable when present; production uploads use Cloudinary.
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Health check endpoints

@@ -8,27 +8,22 @@ const cloudinary = require('cloudinary').v2;
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 const router = express.Router();
-const useCloudinary = Boolean(
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET
-);
 const cloudinaryConfigured = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
   process.env.CLOUDINARY_API_SECRET
 );
+const isVercel = Boolean(process.env.VERCEL);
+const useCloudinary = cloudinaryConfigured;
 const maxFileSize = 5 * 1024 * 1024;
-const uploadDir = path.join(__dirname, '..', 'uploads');
+const uploadDir = path.resolve(__dirname, '..', 'uploads');
 
-if (useCloudinary && cloudinaryConfigured) {
+if (useCloudinary) {
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET
   });
-} else if (!useCloudinary && !fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 const allowedMimeTypes = {
@@ -54,7 +49,11 @@ const fileFilter = (req, file, callback) => {
 };
 
 const localStorage = multer.diskStorage({
-  destination: (req, file, callback) => callback(null, uploadDir),
+  destination: (req, file, callback) => {
+    fs.mkdir(uploadDir, { recursive: true }, (error) => {
+      callback(error, error ? undefined : uploadDir);
+    });
+  },
   filename: (req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
     callback(null, `smp_${Date.now()}_${crypto.randomBytes(8).toString('hex')}${extension}`);
@@ -62,7 +61,7 @@ const localStorage = multer.diskStorage({
 });
 
 const upload = multer({
-  storage: useCloudinary ? multer.memoryStorage() : localStorage,
+  storage: isVercel || useCloudinary ? multer.memoryStorage() : localStorage,
   limits: { fileSize: maxFileSize, files: 8 },
   fileFilter
 });
@@ -174,20 +173,11 @@ const runUpload = (middleware, handler) => (req, res, next) => {
 };
 
 const requireCloudinaryConfig = (req, res, next) => {
-  if (process.env.VERCEL && !cloudinaryConfigured) {
+  if (isVercel && !cloudinaryConfigured) {
     return res.status(503).json({
       success: false,
       message: 'Permanent image storage is not configured for Vercel. Configure Cloudinary environment variables.'
     });
-  }
-  if (useCloudinary && !cloudinaryConfigured) {
-    return res.status(503).json({
-      success: false,
-      message: 'Image storage is not configured. Set the required Cloudinary environment variables.'
-    });
-  }
-  if (!useCloudinary && !fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
   }
   return next();
 };

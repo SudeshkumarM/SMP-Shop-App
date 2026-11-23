@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const Shop = require('../models/Shop');
 const Branch = require('../models/Branch');
 const Admin = require('../models/Admin');
@@ -9,6 +10,19 @@ const User = require('../models/User');
 const Investment = require('../models/Investment');
 const Expense = require('../models/Expense');
 const Invoice = require('../models/Invoice');
+
+const investmentPurposes = [
+  'Business Growth',
+  'Personal Savings',
+  'Long-term Investment',
+  'Other'
+];
+const investmentDurations = [
+  '3–6 Months',
+  '6–12 Months',
+  '1–3 Years',
+  'More than 3 Years'
+];
 
 /**
  * @desc    Get Owner Master Dashboard & Corporate Analytics
@@ -412,27 +426,228 @@ const getInvestments = async (req, res) => {
 
 const createInvestment = async (req, res) => {
   try {
-    const { title, amount, category, shopId, branchId, sourceOfFunds, notes, date } = req.body;
+    const {
+      title,
+      amount,
+      category,
+      shopId,
+      branchId,
+      sourceOfFunds,
+      notes,
+      date,
+      purpose,
+      expectedProfit,
+      duration,
+      expectedReturnPercentage
+    } = req.body;
 
-    const count = await Investment.countDocuments();
-    const investmentId = `INV-${Date.now().toString().slice(-6)}-${count + 1}`;
+    const numericAmount = Number(amount);
+    const numericExpectedProfit = Number(expectedProfit);
+    const numericExpectedReturn = Number(expectedReturnPercentage);
+    const investmentDate = date ? new Date(date) : new Date();
+    const invalidDateOnly = Number.isFinite(investmentDate.getTime()) &&
+      typeof date === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      investmentDate.toISOString().slice(0, 10) !== date;
+
+    if (!shopId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a shop and enter a valid investment amount greater than zero.'
+      });
+    }
+
+    if (
+      expectedProfit === undefined ||
+      expectedProfit === null ||
+      expectedProfit === '' ||
+      !Number.isFinite(numericExpectedProfit) ||
+      numericExpectedProfit < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid expected profit amount.'
+      });
+    }
+
+    if (
+      !purpose ||
+      !investmentPurposes.includes(purpose) ||
+      !duration ||
+      !investmentDurations.includes(duration)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a valid investment purpose and duration.'
+      });
+    }
+
+    if (
+      expectedReturnPercentage === undefined ||
+      expectedReturnPercentage === null ||
+      expectedReturnPercentage === '' ||
+      !Number.isFinite(numericExpectedReturn) ||
+      numericExpectedReturn < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid expected return percentage.'
+      });
+    }
+
+    if (!Number.isFinite(investmentDate.getTime()) || invalidDateOnly) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid investment date.'
+      });
+    }
+
+    const investmentId = `INV-${crypto.randomUUID()}`;
 
     const investment = await Investment.create({
       investmentId,
       shopId,
       branchId: branchId || null,
-      title,
-      amount: Number(amount),
-      category,
+      title: title || `Investment - ${purpose}`,
+      amount: numericAmount,
+      category: category || 'Additional Working Capital',
+      purpose,
+      expectedProfit: numericExpectedProfit,
+      duration,
+      expectedReturnPercentage: numericExpectedReturn,
       sourceOfFunds: sourceOfFunds || 'Owner Equity',
       notes: notes || '',
-      date: date || new Date(),
+      date: investmentDate,
       recordedBy: req.user._id
     });
 
     res.status(201).json({ success: true, message: 'Investment recorded successfully', investment });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateInvestment = async (req, res) => {
+  try {
+    const {
+      title,
+      amount,
+      shopId,
+      expectedProfit,
+      date,
+      duration,
+      expectedReturnPercentage,
+      purpose,
+      notes
+    } = req.body;
+    const numericAmount = Number(amount);
+    const numericExpectedProfit = Number(expectedProfit);
+    const numericExpectedReturn = Number(expectedReturnPercentage);
+    const investmentDate = new Date(date);
+    const invalidDateOnly = Number.isFinite(investmentDate.getTime()) &&
+      typeof date === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      investmentDate.toISOString().slice(0, 10) !== date;
+
+    if (!title?.trim() || !shopId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter an investment name, select a shop, and provide a valid amount.'
+      });
+    }
+
+    if (
+      expectedProfit === undefined ||
+      expectedProfit === null ||
+      expectedProfit === '' ||
+      !Number.isFinite(numericExpectedProfit) ||
+      numericExpectedProfit < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid expected profit amount.'
+      });
+    }
+
+    if (!purpose || !investmentPurposes.includes(purpose) || !duration || !investmentDurations.includes(duration)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a valid investment purpose and duration.'
+      });
+    }
+
+    if (
+      expectedReturnPercentage === undefined ||
+      expectedReturnPercentage === null ||
+      expectedReturnPercentage === '' ||
+      !Number.isFinite(numericExpectedReturn) ||
+      numericExpectedReturn < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid expected return percentage.'
+      });
+    }
+
+    if (!Number.isFinite(investmentDate.getTime()) || invalidDateOnly) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid investment date.'
+      });
+    }
+
+    const investment = await Investment.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          title: title.trim(),
+          amount: numericAmount,
+          shopId,
+          expectedProfit: numericExpectedProfit,
+          date: investmentDate,
+          duration,
+          expectedReturnPercentage: numericExpectedReturn,
+          purpose,
+          notes: notes || ''
+        }
+      },
+      { new: true, runValidators: true }
+    ).populate('shopId', 'name');
+
+    if (!investment) {
+      return res.status(404).json({ success: false, message: 'Investment not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Investment updated successfully.',
+      investment
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, message: 'Investment not found.' });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deleteInvestment = async (req, res) => {
+  try {
+    const investment = await Investment.findByIdAndDelete(req.params.id);
+    if (!investment) {
+      return res.status(404).json({ success: false, message: 'Investment not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Investment deleted successfully.',
+      investmentId: investment._id
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(404).json({ success: false, message: 'Investment not found.' });
+    }
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -575,6 +790,8 @@ module.exports = {
   deleteAdmin,
   getInvestments,
   createInvestment,
+  updateInvestment,
+  deleteInvestment,
   getExpenses,
   createExpense,
   getProfitLossReport

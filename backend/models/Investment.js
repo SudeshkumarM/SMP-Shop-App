@@ -37,7 +37,27 @@ const investmentSchema = new mongoose.Schema({
       'Marketing & Launch Fund',
       'Additional Working Capital'
     ],
-    required: true
+    default: 'Additional Working Capital'
+  },
+  purpose: {
+    type: String,
+    enum: ['Business Growth', 'Personal Savings', 'Long-term Investment', 'Other'],
+    default: null
+  },
+  expectedProfit: {
+    type: Number,
+    min: 0,
+    default: null
+  },
+  duration: {
+    type: String,
+    enum: ['3–6 Months', '6–12 Months', '1–3 Years', 'More than 3 Years'],
+    default: null
+  },
+  expectedReturnPercentage: {
+    type: Number,
+    min: 0,
+    default: null
   },
   date: {
     type: Date,

@@ -14,6 +14,8 @@ const {
   deleteAdmin,
   getInvestments,
   createInvestment,
+  updateInvestment,
+  deleteInvestment,
   getExpenses,
   createExpense,
   getProfitLossReport
@@ -55,6 +57,8 @@ router.delete('/admins/:id', deleteAdmin);
 // Investment Management
 router.get('/investments', getInvestments);
 router.post('/investments', createInvestment);
+router.put('/investments/:id', updateInvestment);
+router.delete('/investments/:id', deleteInvestment);
 
 // Expense Management
 router.get('/expenses', getExpenses);
