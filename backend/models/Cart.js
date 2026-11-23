@@ -27,6 +27,10 @@ const cartItemSchema = new mongoose.Schema({
   finalPrice: {
     type: Number,
     required: true
+  },
+  isAvailable: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -55,6 +59,10 @@ const cartSchema = new mongoose.Schema({
     default: 0
   },
   gstAmount: {
+    type: Number,
+    default: 0
+  },
+  deliveryCharge: {
     type: Number,
     default: 0
   },

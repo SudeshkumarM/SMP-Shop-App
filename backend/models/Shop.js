@@ -70,6 +70,25 @@ const shopSchema = new mongoose.Schema({
   settings: {
     currency: { type: String, default: 'INR' },
     currencySymbol: { type: String, default: '₹' },
+    updatedAt: { type: Date, default: null },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    customerAccess: {
+      customerLoginEnabled: { type: Boolean, default: true },
+      customerRegistrationEnabled: { type: Boolean, default: true },
+      temporaryUnavailable: { type: Boolean, default: false },
+      unavailableTitle: { type: String, default: 'Temporarily Unavailable', trim: true },
+      unavailableMessage: { type: String, default: '', maxlength: 1000 },
+      updatedAt: { type: Date, default: null },
+      updatedBy: { type: String, default: '' }
+    },
+    customerSystem: {
+      customerSystemEnabled: { type: Boolean, default: true },
+      maintenanceMode: { type: Boolean, default: false },
+      maintenanceTitle: { type: String, default: 'Temporarily Unavailable', trim: true, maxlength: 120 },
+      maintenanceReason: { type: String, default: '', maxlength: 1000 },
+      updatedAt: { type: Date, default: null },
+      updatedBy: { type: String, default: '' }
+    },
     defaultGstPercent: { type: Number, default: 5 },
     lowStockThreshold: { type: Number, default: 10 },
     enablePosBarcodeScan: { type: Boolean, default: true },
@@ -79,13 +98,17 @@ const shopSchema = new mongoose.Schema({
       deliveryCharge: { type: Number, default: 50 },
       freeDeliveryThreshold: { type: Number, default: 1000 },
       chargeType: { type: String, enum: ['FLAT', 'PERCENT'], default: 'FLAT' },
-      description: { type: String, default: 'Standard Express Shipping (2-3 business days)' }
+      description: { type: String, default: 'Standard Express Shipping (2-3 business days)' },
+      updatedAt: { type: Date, default: null },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
     },
     gstSettings: {
       enabled: { type: Boolean, default: true },
       defaultGstPercent: { type: Number, default: 5 },
       gstNumber: { type: String, default: '33AAAAA0000A1Z5' },
-      compositionScheme: { type: Boolean, default: false }
+      compositionScheme: { type: Boolean, default: false },
+      updatedAt: { type: Date, default: null },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
     },
     whatsappSettings: {
       enabled: { type: Boolean, default: false },
@@ -104,7 +127,9 @@ const shopSchema = new mongoose.Schema({
       notifyOnInvoice: { type: Boolean, default: true },
       notifyOnFailedMessage: { type: Boolean, default: true },
       notifyOnSystemAlerts: { type: Boolean, default: true },
-      apiConnectionStatus: { type: String, enum: ['CONNECTED', 'SIMULATED', 'DISCONNECTED'], default: 'SIMULATED' }
+      apiConnectionStatus: { type: String, enum: ['CONNECTED', 'SIMULATED', 'DISCONNECTED'], default: 'SIMULATED' },
+      updatedAt: { type: Date, default: null },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
     }
   }
 }, {

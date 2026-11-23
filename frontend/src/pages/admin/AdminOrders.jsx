@@ -15,8 +15,7 @@ const AdminOrders = () => {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      // In admin context, query orders
-      const res = await api.get('/orders/my-orders'); // or all orders
+      const res = await api.get('/orders');
       if (res.data.success) {
         setOrders(res.data.orders || []);
       }

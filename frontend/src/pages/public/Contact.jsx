@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
 import { useToast } from '../../context/ToastContext';
+import api from '../../services/api';
 
 const Contact = () => {
   const { addToast } = useToast();
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', subject: '', message: '' });
   const [sent, setSent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSent(true);
-    addToast('Your inquiry has been received! Our support team will contact you shortly.', 'success');
+    setSubmitting(true);
+
+    try {
+      const res = await api.post('/contact', formData);
+      if (res.data.success) {
+        setSent(true);
+        addToast(res.data.message, 'success');
+        setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
+      }
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Failed to submit your inquiry. Please try again.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -121,8 +135,21 @@ const Contact = () => {
                         ></textarea>
                       </div>
                       <div className="col-12">
-                        <button type="submit" className="btn btn-primary px-4 py-2 rounded-pill fw-semibold">
-                          <i className="bi bi-send-fill me-2"></i> Send Message
+                        <button 
+                          type="submit" 
+                          disabled={submitting}
+                          className="btn btn-primary px-4 py-2 rounded-pill fw-semibold"
+                        >
+                          {submitting ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm me-2"></span>
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-send-fill me-2"></i> Send Message
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>

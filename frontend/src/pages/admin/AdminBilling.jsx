@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import InvoicePrintModal from '../../components/pos/InvoicePrintModal';
@@ -20,7 +20,9 @@ const AdminBilling = () => {
 
   // Delete Bill State
   const [deletingId, setDeletingId] = useState(null);
-  const [deleteReason, setDeleteReason] = useState('Cancelled / Refunded order');
+  const [deleteReason, setDeleteReason] = useState('Authorized permanent deletion');
+  const [deletingBill, setDeletingBill] = useState(false);
+  const deletionInFlightRef = useRef(false);
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -67,10 +69,17 @@ const AdminBilling = () => {
   };
 
   const handleDeleteBill = async () => {
-    if (!deletingId) return;
+    if (!deletingId || deletionInFlightRef.current) return;
+    if (!deleteReason.trim()) {
+      addToast('Enter a reason before deleting this bill.', 'warning');
+      return;
+    }
+
+    deletionInFlightRef.current = true;
+    setDeletingBill(true);
     try {
       const res = await api.delete(`/billing/invoice/${deletingId}`, {
-        data: { reason: deleteReason }
+        data: { reason: deleteReason.trim() }
       });
       if (res.data.success) {
         addToast(res.data.message, 'success');
@@ -79,6 +88,9 @@ const AdminBilling = () => {
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to delete bill', 'error');
+    } finally {
+      deletionInFlightRef.current = false;
+      setDeletingBill(false);
     }
   };
 
@@ -92,7 +104,7 @@ const AdminBilling = () => {
       <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
           <h2 className="fw-bold brand-font mb-1">Billing & Invoices Management</h2>
-          <p className="text-muted mb-0">Search, inspect, edit, print, or cancel counter bills with full audit logging</p>
+          <p className="text-muted mb-0">Search, inspect, edit, print, or permanently delete counter bills</p>
         </div>
       </div>
 
@@ -175,7 +187,7 @@ const AdminBilling = () => {
                   <tr key={inv._id} className={inv.isDeleted ? 'table-danger opacity-75' : ''}>
                     <td className="ps-4 fw-bold font-monospace">
                       {inv.invoiceNumber}
-                      {inv.isDeleted && <span className="badge bg-danger ms-2">DELETED</span>}
+                      {inv.isDeleted && <span className="badge bg-danger ms-2">SOFT DELETED</span>}
                     </td>
                     <td className="small text-muted">
                       {new Date(inv.createdAt).toLocaleString('en-IN', {
@@ -223,23 +235,22 @@ const AdminBilling = () => {
                           <i className="bi bi-printer"></i>
                         </button>
                         {!inv.isDeleted && (
-                          <>
-                            <button
-                              onClick={() => handleOpenEdit(inv)}
-                              className="btn btn-outline-warning"
-                              title="Edit Bill"
-                            >
-                              <i className="bi bi-pencil"></i>
-                            </button>
-                            <button
-                              onClick={() => setDeletingId(inv._id)}
-                              className="btn btn-outline-danger"
-                              title="Delete / Cancel Bill"
-                            >
-                              <i className="bi bi-trash"></i>
-                            </button>
-                          </>
+                          <button
+                            onClick={() => handleOpenEdit(inv)}
+                            className="btn btn-outline-warning"
+                            title="Edit Bill"
+                          >
+                            <i className="bi bi-pencil"></i>
+                          </button>
                         )}
+                        <button
+                          onClick={() => setDeletingId(inv._id)}
+                          className="btn btn-outline-danger"
+                          title="Permanently delete bill (Admin or Owner)"
+                          aria-label={`Permanently delete bill ${inv.invoiceNumber}`}
+                        >
+                          <i className="bi bi-trash"></i>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -327,7 +338,7 @@ const AdminBilling = () => {
         </div>
       )}
 
-      {/* Delete / Cancel Bill Modal */}
+      {/* Admin/Owner permanent-delete confirmation */}
       {deletingId && (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog">
@@ -335,32 +346,47 @@ const AdminBilling = () => {
               <div className="modal-header bg-danger text-white">
                 <h5 className="modal-title fw-bold">
                   <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                  Cancel / Delete Bill
+                  Permanently Delete Bill
                 </h5>
-                <button type="button" className="btn-close btn-close-white" onClick={() => setDeletingId(null)}></button>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setDeletingId(null)}
+                  disabled={deletingBill}
+                ></button>
               </div>
               <div className="modal-body">
-                <p className="text-muted">
-                  Are you sure you want to cancel this bill? This will:
+                <p className="text-danger">
+                  This permanently removes the bill from MongoDB and cannot be undone. Active bills restore stock and cancel/refund linked orders in the same transaction. Previously cancelled bills are removed without repeating those actions.
                 </p>
-                <ul className="small text-muted mb-3">
-                  <li>Mark the invoice as <strong>CANCELLED / DELETED</strong>.</li>
-                  <li><strong>Automatically restore product stock</strong> back to available inventory.</li>
-                  <li>Record your Admin ID and timestamp in the permanent audit trail.</li>
-                </ul>
-                <label className="form-label small fw-semibold">Reason for Cancellation *</label>
+                <label className="form-label small fw-semibold">Reason for Permanent Deletion *</label>
                 <input
                   type="text"
                   required
                   className="form-control"
-                  placeholder="e.g. Customer returned items, cash error"
+                  placeholder="Reason for removing this bill"
+                  maxLength={500}
                   value={deleteReason}
                   onChange={(e) => setDeleteReason(e.target.value)}
                 />
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setDeletingId(null)}>Close</button>
-                <button type="button" onClick={handleDeleteBill} className="btn btn-danger fw-bold">Confirm Deletion</button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setDeletingId(null)}
+                  disabled={deletingBill}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteBill}
+                  className="btn btn-danger fw-bold"
+                  disabled={deletingBill || !deleteReason.trim()}
+                >
+                  {deletingBill ? 'Deleting...' : 'Confirm Permanent Delete'}
+                </button>
               </div>
             </div>
           </div>

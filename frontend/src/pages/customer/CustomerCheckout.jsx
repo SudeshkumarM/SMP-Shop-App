@@ -14,11 +14,8 @@ const CustomerCheckout = () => {
   const [addresses, setAddresses] = useState([]);
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [deliveryRules, setDeliveryRules] = useState({
-    enabled: true,
-    deliveryCharge: 50,
-    freeDeliveryThreshold: 1000
-  });
+  const [deliveryRules, setDeliveryRules] = useState(null);
+  const [deliveryRulesLoaded, setDeliveryRulesLoaded] = useState(false);
 
   // New address form toggle
   const [showNewAddress, setShowNewAddress] = useState(false);
@@ -27,26 +24,45 @@ const CustomerCheckout = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [addrRes, rulesRes] = await Promise.all([
-          api.get('/customer/addresses'),
-          api.get('/products/delivery/rules').catch(() => ({ data: { success: false } }))
-        ]);
+        const addrRes = await api.get('/customer/addresses');
         if (addrRes.data.success && addrRes.data.addresses.length > 0) {
           setAddresses(addrRes.data.addresses);
         } else {
           setShowNewAddress(true);
         }
-        if (rulesRes.data?.success && rulesRes.data.delivery) {
-          setDeliveryRules(rulesRes.data.delivery);
-        }
       } catch (err) {
-        console.error(err);
+        addToast(err.response?.data?.message || 'Checkout details could not be loaded.', 'error');
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, []);
+  }, [addToast]);
+
+  useEffect(() => {
+    if (!cart.shopId) return undefined;
+    let active = true;
+    setDeliveryRulesLoaded(false);
+    api.get('/products/delivery/rules', { params: { shopId: cart.shopId } })
+      .then((res) => {
+        if (!res.data?.success || !res.data.delivery) {
+          throw new Error(res.data?.message || 'Delivery rules are unavailable.');
+        }
+        if (active) setDeliveryRules(res.data.delivery);
+      })
+      .catch((error) => {
+        if (active) {
+          setDeliveryRules(null);
+          addToast(error.response?.data?.message || 'Delivery rules could not be loaded.', 'error');
+        }
+      })
+      .finally(() => {
+        if (active) setDeliveryRulesLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [cart.shopId, addToast]);
 
   const handleAddNewAddress = async (e) => {
     e.preventDefault();
@@ -239,7 +255,10 @@ const CustomerCheckout = () => {
                       style={{ width: '50px', height: '50px' }}
                     />
                     <div>
-                      <div className="fw-semibold small">{item.productId?.name}</div>
+                      <div className={`fw-semibold small ${item.isAvailable === false ? 'text-danger' : ''}`}>
+                        {item.productId?.name || 'Unavailable product'}
+                        {item.isAvailable === false && ' — unavailable or out of stock'}
+                      </div>
                       <small className="text-muted">
                         Size: {item.variant?.size || 'Std'} | Qty: {item.quantity}
                       </small>
@@ -272,17 +291,23 @@ const CustomerCheckout = () => {
             {/* Dynamic Delivery & Total Calculation */}
             {(() => {
               const subtotal = cart.subtotal || 0;
-              const deliveryFee = (deliveryRules.enabled && subtotal < (deliveryRules.freeDeliveryThreshold || 1000))
-                ? (deliveryRules.deliveryCharge || 50)
-                : 0;
-              const totalPayable = subtotal + (cart.gstAmount || 0) + deliveryFee;
+              const deliveryFee = Number(cart.deliveryCharge) || 0;
+              const totalPayable = Number(cart.grandTotal) || 0;
 
               return (
                 <>
                   <div className="d-flex justify-content-between py-2 border-bottom small">
                     <span className="text-muted">Delivery</span>
-                    {deliveryFee === 0 ? (
-                      <span className="text-success fw-bold">FREE (Above ₹{deliveryRules.freeDeliveryThreshold})</span>
+                    {!deliveryRulesLoaded ? (
+                      <span className="text-muted">Loading delivery rules…</span>
+                    ) : !deliveryRules?.enabled ? (
+                      <span className="text-danger fw-bold">Unavailable</span>
+                    ) : deliveryFee === 0 ? (
+                      <span className="text-success fw-bold">
+                        FREE{deliveryRules.freeDeliveryThreshold > 0 && subtotal >= deliveryRules.freeDeliveryThreshold
+                          ? ` (Above ₹${deliveryRules.freeDeliveryThreshold})`
+                          : ''}
+                      </span>
                     ) : (
                       <span className="text-primary fw-bold">+₹{deliveryFee.toFixed(2)}</span>
                     )}
@@ -298,6 +323,11 @@ const CustomerCheckout = () => {
 
             <button
               onClick={handleProceedToPayment}
+              disabled={
+                !deliveryRulesLoaded ||
+                !deliveryRules?.enabled ||
+                cart.items.some((item) => item.isAvailable === false)
+              }
               className="btn btn-warning btn-lg w-100 rounded-pill fw-bold shadow-sm py-3 mt-4 text-uppercase tracking-wider"
             >
               Continue to Payment

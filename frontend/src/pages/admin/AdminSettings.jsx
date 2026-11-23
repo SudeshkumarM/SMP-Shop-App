@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import UserAccessControl from '../../components/common/UserAccessControl';
 
 const AdminSettings = () => {
   const { user } = useAuth();
@@ -91,6 +92,9 @@ const AdminSettings = () => {
       <h3 className="fw-bold brand-font mb-4">Shop Configuration & Admin Security</h3>
 
       <div className="row g-4">
+        <div className="col-12">
+          <UserAccessControl />
+        </div>
         {/* Shop Settings */}
         <div className="col-lg-7">
           <div className="smp-card p-4 bg-white shadow-sm mb-4">

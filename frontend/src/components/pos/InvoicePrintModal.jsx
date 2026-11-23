@@ -1,6 +1,7 @@
 import React from 'react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import BarcodeVisual from '../common/BarcodeVisual';
 
 const InvoicePrintModal = ({ invoice, onClose }) => {
   if (!invoice) return null;
@@ -11,19 +12,25 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
 
   const handleDownloadPdf = () => {
     const doc = new jsPDF();
+    const staffName = invoice.staffInfo?.fullName || invoice.staffId?.fullName;
 
     // Header
     doc.setFontSize(18);
     doc.setTextColor(37, 99, 235);
-    doc.text(invoice.shopInfo?.name || 'SMP', 14, 20);
+    doc.text(invoice.shopInfo?.name || 'Store', 14, 20);
 
     doc.setFontSize(9);
     doc.setTextColor(100);
-    doc.text(invoice.shopInfo?.address || '100 Feet Road, Anna Nagar, Chennai - 600040', 14, 26);
-    doc.text(`GSTIN: ${invoice.shopInfo?.gstNumber || '33AAAAA0000A1Z5'} | Phone: ${invoice.shopInfo?.phone || '+91 98400 12345'}`, 14, 31);
+    if (invoice.shopInfo?.address) doc.text(invoice.shopInfo.address, 14, 26);
+    const shopContacts = [
+      invoice.shopInfo?.gstNumber ? `GSTIN: ${invoice.shopInfo.gstNumber}` : '',
+      invoice.shopInfo?.phone ? `Phone: ${invoice.shopInfo.phone}` : ''
+    ].filter(Boolean).join(' | ');
+    if (shopContacts) doc.text(shopContacts, 14, 31);
+    if (invoice.branchInfo?.name) doc.text(`Branch: ${invoice.branchInfo.name}`, 14, 36);
 
     doc.setDrawColor(200);
-    doc.line(14, 35, 196, 35);
+    doc.line(14, 40, 196, 40);
 
     // Invoice Meta
     doc.setFontSize(14);
@@ -37,20 +44,20 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
 
     doc.text(`Customer: ${invoice.customerInfo?.name || 'Walk-in'}`, 120, 50);
     doc.text(`Phone: ${invoice.customerInfo?.phone || 'N/A'}`, 120, 56);
-    doc.text(`Staff: ${invoice.staffId?.fullName || invoice.staffId || 'Counter 1'}`, 120, 62);
+    if (staffName) doc.text(`Staff: ${staffName}`, 120, 62);
 
     // Table
     const tableRows = (invoice.items || []).map((item, idx) => [
       idx + 1,
-      `${item.productName} (${item.size || 'Std'}, ${item.colour || 'Def'})`,
+      item.productName,
       item.quantity,
-      `₹${item.unitPrice.toFixed(2)}`,
-      `${item.gstPercent || 5}%`,
-      `₹${item.totalAmount.toFixed(2)}`
+      `₹${Number(item.unitPrice || 0).toFixed(2)}`,
+      `${Number(item.gstPercent || 0)}%`,
+      `₹${Number(item.totalAmount || 0).toFixed(2)}`
     ]);
 
     doc.autoTable({
-      startY: 68,
+      startY: 74,
       head: [['#', 'Item Description', 'Qty', 'Unit Price', 'GST %', 'Total Amount']],
       body: tableRows,
       theme: 'striped',
@@ -65,14 +72,32 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
     doc.text(`Discount: ₹${(invoice.totalDiscount || 0).toFixed(2)}`, 140, finalY + 6);
     doc.text(`CGST: ₹${(invoice.cgstAmount || 0).toFixed(2)}`, 140, finalY + 12);
     doc.text(`SGST: ₹${(invoice.sgstAmount || 0).toFixed(2)}`, 140, finalY + 18);
+    if (invoice.deliveryCharge > 0) {
+      doc.text(`Delivery: ₹${invoice.deliveryCharge.toFixed(2)}`, 140, finalY + 24);
+    }
 
     doc.setFontSize(12);
     doc.setTextColor(37, 99, 235);
-    doc.text(`Grand Total: ₹${(invoice.grandTotal || 0).toFixed(2)}`, 140, finalY + 26);
+    doc.text(`Grand Total: ₹${(invoice.grandTotal || 0).toFixed(2)}`, 140, finalY + 32);
+
+    let thankYouY = finalY + 42;
+    const cashReceived = Number(invoice.paymentDetails?.amountReceived);
+    const changeReturned = Number(invoice.paymentDetails?.changeDue);
+    if (
+      invoice.paymentMethod === 'POS_CASH' &&
+      Number.isFinite(cashReceived) &&
+      Number.isFinite(changeReturned)
+    ) {
+      doc.setFontSize(10);
+      doc.setTextColor(30);
+      doc.text(`Cash Received: ₹${cashReceived.toFixed(2)}`, 140, finalY + 39);
+      doc.text(`Change Returned: ₹${changeReturned.toFixed(2)}`, 140, finalY + 45);
+      thankYouY = finalY + 55;
+    }
 
     doc.setFontSize(8);
     doc.setTextColor(150);
-    doc.text('Thank you for shopping with SMP! Exchange within 7 days with bill.', 14, finalY + 36);
+    doc.text('Thank you for your purchase.', 14, thankYouY);
 
     doc.save(`${invoice.invoiceNumber}.pdf`);
   };
@@ -121,14 +146,24 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
               <div className="d-flex justify-content-between align-items-start border-bottom pb-3 mb-3">
                 <div>
                   <h3 className="brand-font fw-bold text-primary mb-1">
-                    {invoice.shopInfo?.name || 'SMP'}
+                    {invoice.shopInfo?.name || 'Store'}
                   </h3>
-                  <p className="text-secondary small mb-1">
-                    {invoice.shopInfo?.address || '100 Feet Road, Anna Nagar, Chennai - 600040'}
-                  </p>
-                  <p className="text-secondary small mb-0">
-                    <strong>GSTIN:</strong> {invoice.shopInfo?.gstNumber || '33AAAAA0000A1Z5'} | <strong>Phone:</strong> {invoice.shopInfo?.phone || '+91 98400 12345'}
-                  </p>
+                  {invoice.shopInfo?.address && (
+                    <p className="text-secondary small mb-1">{invoice.shopInfo.address}</p>
+                  )}
+                  {(invoice.shopInfo?.gstNumber || invoice.shopInfo?.phone) && (
+                    <p className="text-secondary small mb-0">
+                      {invoice.shopInfo?.gstNumber && <><strong>GSTIN:</strong> {invoice.shopInfo.gstNumber}</>}
+                      {invoice.shopInfo?.gstNumber && invoice.shopInfo?.phone && ' | '}
+                      {invoice.shopInfo?.phone && <><strong>Phone:</strong> {invoice.shopInfo.phone}</>}
+                    </p>
+                  )}
+                  {invoice.branchInfo?.name && (
+                    <p className="text-secondary small mb-0">
+                      <strong>Branch:</strong> {invoice.branchInfo.name}
+                      {invoice.branchInfo.address ? ` - ${invoice.branchInfo.address}` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="text-end">
                   <span className="badge bg-primary-subtle text-primary fs-6 px-3 py-2 rounded-pill">
@@ -159,8 +194,22 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                 <div className="col-sm-6 text-sm-end">
                   <div className="text-muted text-uppercase fw-bold" style={{ fontSize: '0.72rem' }}>Payment Details:</div>
                   <div><strong>Method:</strong> {invoice.paymentMethod}</div>
-                  <div><strong>Status:</strong> <span className="badge bg-success">{invoice.paymentStatus}</span></div>
-                  <div><strong>Staff / Terminal:</strong> {invoice.staffId?.fullName || invoice.staffId?.staffId || 'Counter 1'}</div>
+                  <div>
+                    <strong>Status:</strong>{' '}
+                    <span className={`badge ${invoice.paymentStatus === 'PAID' ? 'bg-success' : 'bg-warning text-dark'}`}>
+                      {invoice.paymentStatus || 'UNKNOWN'}
+                    </span>
+                  </div>
+                  {(invoice.staffInfo?.fullName || invoice.staffId?.fullName) && (
+                    <div><strong>Staff:</strong> {invoice.staffInfo?.fullName || invoice.staffId.fullName}</div>
+                  )}
+                  {invoice.staffInfo?.staffId && <div><strong>Staff ID:</strong> {invoice.staffInfo.staffId}</div>}
+                  {invoice.paymentDetails?.amountReceived !== undefined && (
+                    <div><strong>Cash received:</strong> ₹{Number(invoice.paymentDetails.amountReceived).toFixed(2)}</div>
+                  )}
+                  {invoice.paymentDetails?.changeDue !== undefined && (
+                    <div><strong>Change returned:</strong> ₹{Number(invoice.paymentDetails.changeDue).toFixed(2)}</div>
+                  )}
                   {invoice.paymentDetails?.transactionRef && (
                     <div className="text-muted font-monospace small"><strong>UTR / Ref:</strong> {invoice.paymentDetails.transactionRef}</div>
                   )}
@@ -186,12 +235,12 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                         <td>{idx + 1}</td>
                         <td>
                           <div className="fw-semibold">{item.productName}</div>
-                          <small className="text-muted">Size: {item.size || 'Std'} | Color: {item.colour || 'Def'} | SKU: {item.sku || 'N/A'}</small>
+                          <small className="text-muted">SKU: {item.sku || 'N/A'}{item.barcode ? ` | Barcode: ${item.barcode}` : ''}</small>
                         </td>
                         <td className="text-center">{item.quantity}</td>
-                        <td className="text-end">₹{item.unitPrice.toFixed(2)}</td>
-                        <td className="text-end">{item.gstPercent || 5}%</td>
-                        <td className="text-end fw-bold">₹{item.totalAmount.toFixed(2)}</td>
+                        <td className="text-end">₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                        <td className="text-end">{Number(item.gstPercent || 0)}%</td>
+                        <td className="text-end fw-bold">₹{Number(item.totalAmount || 0).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -212,13 +261,19 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
                     </div>
                   )}
                   <div className="d-flex justify-content-between py-1 border-bottom small">
-                    <span className="text-muted">CGST (2.5%):</span>
+                    <span className="text-muted">CGST:</span>
                     <span>₹{(invoice.cgstAmount || 0).toFixed(2)}</span>
                   </div>
                   <div className="d-flex justify-content-between py-1 border-bottom small">
-                    <span className="text-muted">SGST (2.5%):</span>
+                    <span className="text-muted">SGST:</span>
                     <span>₹{(invoice.sgstAmount || 0).toFixed(2)}</span>
                   </div>
+                  {invoice.deliveryCharge > 0 && (
+                    <div className="d-flex justify-content-between py-1 border-bottom small">
+                      <span className="text-muted">Delivery:</span>
+                      <span>₹{invoice.deliveryCharge.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="d-flex justify-content-between py-2 border-top fs-5 fw-bold text-primary">
                     <span>Grand Total:</span>
                     <span>₹{(invoice.grandTotal || 0).toFixed(2)}</span>
@@ -228,12 +283,10 @@ const InvoicePrintModal = ({ invoice, onClose }) => {
 
               {/* Barcode & Footer terms */}
               <div className="text-center pt-3 border-top">
-                <div className="brand-font fw-bold letter-spacing-1 text-muted small mb-1">
-                  ||||| | |||| ||| |||||| | ||||| |||||||
-                </div>
+                <BarcodeVisual value={invoice.barcode || invoice.invoiceNumber} height={36} displayValue={false} />
                 <div className="small text-muted">{invoice.invoiceNumber}</div>
                 <p className="small text-secondary mt-2 mb-0">
-                  Thank you for shopping at SMP! Exchanges allowed within 7 days along with this bill.
+                  Thank you for your purchase.
                 </p>
               </div>
             </div>

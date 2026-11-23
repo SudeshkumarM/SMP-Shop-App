@@ -14,7 +14,7 @@ const scannerSettingsSchema = new mongoose.Schema({
   },
   barcodeFormat: {
     type: String,
-    enum: ['CODE128', 'EAN13', 'UPCA'],
+    enum: ['CODE128', 'EAN13', 'EAN8', 'UPCA', 'UPCE', 'CODE39'],
     default: 'CODE128'
   },
   qrConfig: {
@@ -39,6 +39,11 @@ const scannerSettingsSchema = new mongoose.Schema({
     type: String,
     enum: ['USB_BARCODE', 'CAMERA_BARCODE', 'CAMERA_QR'],
     default: 'USB_BARCODE'
+  },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   lastTestedAt: {
     type: Date,

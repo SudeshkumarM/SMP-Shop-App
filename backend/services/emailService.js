@@ -22,13 +22,12 @@ const getTransporter = () => {
 const sendEmail = async ({ to, subject, html, text }) => {
   const mailer = getTransporter();
   if (!mailer) {
-    console.log(`[EMAIL SIMULATED] To: ${to} | Subject: ${subject}`);
-    return { success: true, simulated: true };
+    return { success: false, configured: false, simulated: true };
   }
 
   try {
     const info = await mailer.sendMail({
-      from: process.env.EMAIL_FROM || 'SMP Platform <noreply@smpshop.com>',
+      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || 'SMP Platform <noreply@smpshop.com>',
       to,
       subject,
       text: text || '',
@@ -43,14 +42,13 @@ const sendEmail = async ({ to, subject, html, text }) => {
 
 const sendAuthVerificationCode = async ({ to, code }) => {
   const mailer = getTransporter();
-  if (!mailer || process.env.MOCK_EMAIL === 'true') {
-    console.log(`[EMAIL VERIFICATION CODE] To: ${to} | Code: ${code} (Simulated/Dev Mode)`);
-    return { success: true, simulated: true };
+  if (!mailer) {
+    throw new Error('Email provider is not configured.');
   }
 
   try {
     const info = await mailer.sendMail({
-      from: process.env.EMAIL_FROM || 'SMP Platform <noreply@smpshop.com>',
+      from: process.env.SMTP_FROM || process.env.EMAIL_FROM || 'SMP Platform <noreply@smpshop.com>',
       to,
       subject: 'SMP verification code',
       text: `Your SMP verification code is ${code}. It expires in 5 minutes. If you did not request it, ignore this email.`,
@@ -107,8 +105,32 @@ const sendOrderConfirmation = async (order) => {
   }
 };
 
+const sendLoginNotification = async ({ to, name, role, timestamp }) => {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #2563eb; text-align: center;">SMP Shop</h2>
+      <h3>New Login to Your Account</h3>
+      <p>Hello <strong>${name}</strong>,</p>
+      <p>A successful login was detected on your SMP Shop account.</p>
+      <p><strong>Account Type:</strong> ${role}</p>
+      <p><strong>Login Time:</strong> ${new Date(timestamp).toLocaleString()}</p>
+      <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
+      <p style="color: #666;">If this was you, no action is required.</p>
+      <p style="color: #dc2626;">If you do not recognize this activity, please secure your account immediately.</p>
+      <p style="text-align: center; margin-top: 30px; font-size: 0.8rem; color: #999;">SMP Shop Team</p>
+    </div>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: 'New Login to Your SMP Shop Account',
+    html
+  });
+};
+
 module.exports = {
   sendEmail,
   sendAuthVerificationCode,
-  sendOrderConfirmation
+  sendOrderConfirmation,
+  sendLoginNotification
 };

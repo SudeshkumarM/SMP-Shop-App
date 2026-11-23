@@ -1,6 +1,7 @@
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const Shop = require('../models/Shop');
+const mongoose = require('mongoose');
 
 const calculateCartTotals = (items) => {
   let subtotal = 0;
@@ -10,18 +11,104 @@ const calculateCartTotals = (items) => {
   for (const item of items) {
     const itemTotal = item.unitPrice * item.quantity;
     subtotal += itemTotal;
-    const itemGst = (itemTotal * (item.gstPercent || 5)) / 100;
+    const itemGst = (itemTotal * (Number(item.gstPercent) || 0)) / 100;
     gstAmount += itemGst;
   }
 
-  const grandTotal = Math.round((subtotal + gstAmount - discountAmount) * 100) / 100;
+  const roundedSubtotal = Math.round(subtotal * 100) / 100;
+  const roundedGstAmount = Math.round(gstAmount * 100) / 100;
+  const roundedDiscountAmount = Math.round(discountAmount * 100) / 100;
+  const grandTotal = Math.round(
+    (roundedSubtotal + roundedGstAmount - roundedDiscountAmount) * 100
+  ) / 100;
 
   return {
-    subtotal: Math.round(subtotal * 100) / 100,
-    gstAmount: Math.round(gstAmount * 100) / 100,
-    discountAmount: Math.round(discountAmount * 100) / 100,
+    subtotal: roundedSubtotal,
+    gstAmount: roundedGstAmount,
+    discountAmount: roundedDiscountAmount,
     grandTotal
   };
+};
+
+const getCartFilter = (req, guestSessionId) => {
+  if (req.user) return { userId: req.user._id };
+  if (typeof guestSessionId === 'string' && guestSessionId.trim()) {
+    return { guestSessionId: guestSessionId.trim() };
+  }
+  const error = new Error('User or guest session ID is required.');
+  error.statusCode = 400;
+  throw error;
+};
+
+const respondWithCartError = (res, error) => {
+  const statusCode = Number(error.statusCode) || 500;
+  if (statusCode >= 500) console.error('[CartController] Cart operation failed:', error);
+  return res.status(statusCode).json({
+    success: false,
+    message: statusCode >= 500 ? 'Cart operation could not be completed.' : error.message
+  });
+};
+
+const refreshCartPricing = async (cart) => {
+  const shop = await Shop.findOne({ _id: cart.shopId, isActive: true });
+  if (!shop) {
+    const error = new Error('The shop assigned to this cart is unavailable.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const productIds = [...new Set(cart.items.map((item) => String(item.productId)))];
+  const products = await Product.find({ _id: { $in: productIds }, shopId: shop._id });
+  const productsById = new Map(products.map((product) => [String(product._id), product]));
+  for (const item of cart.items) {
+    const product = productsById.get(String(item.productId));
+    if (!product) {
+      item.unitPrice = 0;
+      item.gstPercent = 0;
+      item.finalPrice = 0;
+      item.isAvailable = false;
+      continue;
+    }
+
+    const unitPrice = Number(product.sellingPrice);
+    const gstPercent = shop.settings?.gstSettings?.enabled === false
+      ? 0
+      : Number(product.gstPercent);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0 ||
+        !Number.isFinite(gstPercent) || gstPercent < 0 || gstPercent > 100) {
+      const error = new Error(`Saved pricing for "${product.name}" is invalid.`);
+      error.statusCode = 409;
+      throw error;
+    }
+
+    item.unitPrice = unitPrice;
+    item.gstPercent = gstPercent;
+    item.finalPrice = Math.round((unitPrice + unitPrice * gstPercent / 100) * 100) / 100;
+    item.isAvailable = product.isActive && item.quantity <= product.availableQuantity;
+  }
+
+  const totals = calculateCartTotals(cart.items);
+  const deliverySettings = shop.settings?.deliverySettings;
+  let deliveryCharge = 0;
+  if (cart.items.length > 0 && deliverySettings?.enabled === true) {
+    const fee = Number(deliverySettings.deliveryCharge);
+    const threshold = Number(deliverySettings.freeDeliveryThreshold);
+    if (!Number.isFinite(fee) || fee < 0 || !Number.isFinite(threshold) || threshold < 0) {
+      const error = new Error('Saved delivery settings are invalid.');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (!(threshold > 0 && totals.subtotal >= threshold)) {
+      deliveryCharge = deliverySettings.chargeType === 'PERCENT'
+        ? totals.subtotal * fee / 100
+        : fee;
+    }
+  }
+  cart.deliveryCharge = Math.round(deliveryCharge * 100) / 100;
+  cart.subtotal = totals.subtotal;
+  cart.gstAmount = totals.gstAmount;
+  cart.discountAmount = totals.discountAmount;
+  cart.grandTotal = Math.round((totals.grandTotal + cart.deliveryCharge) * 100) / 100;
 };
 
 /**
@@ -43,22 +130,25 @@ const getCart = async (req, res) => {
     if (!query) {
       return res.status(200).json({
         success: true,
-        cart: { items: [], subtotal: 0, gstAmount: 0, grandTotal: 0 }
+        cart: { items: [], subtotal: 0, gstAmount: 0, deliveryCharge: 0, grandTotal: 0 }
       });
     }
 
-    const cart = await Cart.findOne(query).populate('items.productId');
+    const cart = await Cart.findOne(query);
 
     if (!cart) {
       return res.status(200).json({
         success: true,
-        cart: { items: [], subtotal: 0, gstAmount: 0, grandTotal: 0 }
+        cart: { items: [], subtotal: 0, gstAmount: 0, deliveryCharge: 0, grandTotal: 0 }
       });
     }
 
+    await refreshCartPricing(cart);
+    await cart.save();
+    await cart.populate('items.productId');
     res.status(200).json({ success: true, cart });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    respondWithCartError(res, error);
   }
 };
 
@@ -70,34 +160,33 @@ const getCart = async (req, res) => {
 const addToCart = async (req, res) => {
   try {
     const { productId, size = 'Standard', colour = 'Default', quantity = 1, guestSessionId } = req.body;
+    const quantityNumber = Number(quantity);
+    if (!mongoose.Types.ObjectId.isValid(productId) ||
+        !Number.isInteger(quantityNumber) || quantityNumber <= 0) {
+      return res.status(400).json({ success: false, message: 'A valid product and positive whole-number quantity are required.' });
+    }
 
     const product = await Product.findById(productId);
     if (!product || !product.isActive) {
       return res.status(404).json({ success: false, message: 'Product not available' });
     }
 
-    if (product.availableQuantity < quantity) {
+    if (product.availableQuantity < quantityNumber) {
       return res.status(400).json({ success: false, message: `Only ${product.availableQuantity} items in stock.` });
     }
 
-    let filter = null;
-    if (req.user) {
-      filter = { userId: req.user._id };
-    } else if (guestSessionId) {
-      filter = { guestSessionId };
-    } else {
-      return res.status(400).json({ success: false, message: 'User or Guest Session ID required' });
-    }
-
+    const filter = getCartFilter(req, guestSessionId);
     let cart = await Cart.findOne(filter);
     if (!cart) {
-      const defaultShop = await Shop.findOne({ isActive: true });
       cart = new Cart({
         userId: req.user ? req.user._id : null,
         guestSessionId: req.user ? null : guestSessionId,
-        shopId: product.shopId || (defaultShop ? defaultShop._id : null),
+        shopId: product.shopId,
         items: []
       });
+    }
+    if (String(cart.shopId) !== String(product.shopId)) {
+      return res.status(409).json({ success: false, message: 'A cart cannot contain products from different shops.' });
     }
 
     const existingIndex = cart.items.findIndex(
@@ -107,12 +196,20 @@ const addToCart = async (req, res) => {
         item.variant.colour === colour
     );
 
-    const unitPrice = product.sellingPrice || product.originalPrice;
-    const gstPercent = product.gstPercent || 5;
+    const shop = await Shop.findOne({ _id: product.shopId, isActive: true });
+    if (!shop) {
+      return res.status(409).json({ success: false, message: 'The product shop is unavailable.' });
+    }
+    const unitPrice = Number(product.sellingPrice);
+    const gstPercent = shop.settings?.gstSettings?.enabled === false ? 0 : Number(product.gstPercent);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0 ||
+        !Number.isFinite(gstPercent) || gstPercent < 0 || gstPercent > 100) {
+      return res.status(409).json({ success: false, message: 'Saved product pricing is invalid.' });
+    }
     const finalPrice = Math.round((unitPrice + (unitPrice * gstPercent) / 100) * 100) / 100;
 
     if (existingIndex > -1) {
-      const newQty = cart.items[existingIndex].quantity + Number(quantity);
+      const newQty = cart.items[existingIndex].quantity + quantityNumber;
       if (newQty > product.availableQuantity) {
         return res.status(400).json({
           success: false,
@@ -124,18 +221,14 @@ const addToCart = async (req, res) => {
       cart.items.push({
         productId: product._id,
         variant: { size, colour },
-        quantity: Number(quantity),
+        quantity: quantityNumber,
         unitPrice,
         gstPercent,
         finalPrice
       });
     }
 
-    const totals = calculateCartTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.gstAmount = totals.gstAmount;
-    cart.discountAmount = totals.discountAmount;
-    cart.grandTotal = totals.grandTotal;
+    await refreshCartPricing(cart);
 
     await cart.save();
     await cart.populate('items.productId');
@@ -146,7 +239,7 @@ const addToCart = async (req, res) => {
       cart
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    respondWithCartError(res, error);
   }
 };
 
@@ -158,8 +251,12 @@ const addToCart = async (req, res) => {
 const updateCartItem = async (req, res) => {
   try {
     const { itemId, quantity, guestSessionId } = req.body;
+    const quantityNumber = Number(quantity);
+    if (!Number.isInteger(quantityNumber) || quantityNumber < 0) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a non-negative whole number.' });
+    }
 
-    let filter = req.user ? { userId: req.user._id } : { guestSessionId };
+    const filter = getCartFilter(req, guestSessionId);
     const cart = await Cart.findOne(filter);
 
     if (!cart) {
@@ -171,24 +268,33 @@ const updateCartItem = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Item not found in cart' });
     }
 
-    if (quantity <= 0) {
+    if (quantityNumber === 0) {
       cart.items.pull(itemId);
     } else {
-      item.quantity = quantity;
+      const product = await Product.findOne({
+        _id: item.productId,
+        shopId: cart.shopId,
+        isActive: true
+      });
+      if (!product) {
+        return res.status(404).json({ success: false, message: 'Product is no longer available.' });
+      }
+      if (quantityNumber > product.availableQuantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Only ${product.availableQuantity} items are currently in stock.`
+        });
+      }
+      item.quantity = quantityNumber;
     }
 
-    const totals = calculateCartTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.gstAmount = totals.gstAmount;
-    cart.discountAmount = totals.discountAmount;
-    cart.grandTotal = totals.grandTotal;
-
+    await refreshCartPricing(cart);
     await cart.save();
     await cart.populate('items.productId');
 
     res.status(200).json({ success: true, cart });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    respondWithCartError(res, error);
   }
 };
 
@@ -202,27 +308,25 @@ const removeCartItem = async (req, res) => {
     const { itemId } = req.params;
     const { guestSessionId } = req.query;
 
-    let filter = req.user ? { userId: req.user._id } : { guestSessionId };
+    const filter = getCartFilter(req, guestSessionId);
     const cart = await Cart.findOne(filter);
 
     if (!cart) {
       return res.status(404).json({ success: false, message: 'Cart not found' });
     }
 
+    if (!cart.items.id(itemId)) {
+      return res.status(404).json({ success: false, message: 'Item not found in cart.' });
+    }
     cart.items.pull(itemId);
 
-    const totals = calculateCartTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.gstAmount = totals.gstAmount;
-    cart.discountAmount = totals.discountAmount;
-    cart.grandTotal = totals.grandTotal;
-
+    await refreshCartPricing(cart);
     await cart.save();
     await cart.populate('items.productId');
 
     res.status(200).json({ success: true, message: 'Item removed from cart', cart });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    respondWithCartError(res, error);
   }
 };
 
@@ -247,8 +351,13 @@ const mergeGuestCart = async (req, res) => {
     if (!userCart) {
       guestCart.userId = req.user._id;
       guestCart.guestSessionId = null;
+      await refreshCartPricing(guestCart);
       await guestCart.save();
+      await guestCart.populate('items.productId');
       return res.status(200).json({ success: true, cart: guestCart });
+    }
+    if (String(guestCart.shopId) !== String(userCart.shopId)) {
+      return res.status(409).json({ success: false, message: 'Guest and customer carts belong to different shops.' });
     }
 
     // Merge items
@@ -267,19 +376,28 @@ const mergeGuestCart = async (req, res) => {
       }
     }
 
-    const totals = calculateCartTotals(userCart.items);
-    userCart.subtotal = totals.subtotal;
-    userCart.gstAmount = totals.gstAmount;
-    userCart.discountAmount = totals.discountAmount;
-    userCart.grandTotal = totals.grandTotal;
-
+    const products = await Product.find({
+      _id: { $in: userCart.items.map((item) => item.productId) },
+      shopId: userCart.shopId,
+      isActive: true
+    });
+    const stockById = new Map(products.map((product) => [String(product._id), product.availableQuantity]));
+    for (const item of userCart.items) {
+      if (Number(item.quantity) > Number(stockById.get(String(item.productId)) || 0)) {
+        return res.status(409).json({
+          success: false,
+          message: `Cart merge exceeds available stock for product ${item.productId}.`
+        });
+      }
+    }
+    await refreshCartPricing(userCart);
     await userCart.save();
     await Cart.findByIdAndDelete(guestCart._id);
 
     await userCart.populate('items.productId');
     res.status(200).json({ success: true, cart: userCart });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    respondWithCartError(res, error);
   }
 };
 

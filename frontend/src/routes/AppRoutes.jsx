@@ -82,6 +82,7 @@ import OwnerWhatsAppSettings from '../pages/owner/OwnerWhatsAppSettings';
 
 // Common Audit & Bill History Page
 import CompleteBillHistory from '../pages/common/CompleteBillHistory';
+import CustomerAccessGate from '../components/common/CustomerAccessGate';
 
 // 404 Not Found Page Component
 const NotFound = () => (
@@ -107,36 +108,40 @@ const AppRoutes = () => {
       {/* ============================================================ */}
       <Route element={<PublicLayout />}>
         {/* Core Storefront */}
-        <Route path="/" element={<Home />} />
-        <Route path="/products" element={<Products />} />
-        <Route path="/product/:id" element={<ProductDetail />} />
-        <Route path="/cart" element={<Cart />} />
+        <Route path="/" element={<CustomerAccessGate><Home /></CustomerAccessGate>} />
+        <Route path="/products" element={<CustomerAccessGate><Products /></CustomerAccessGate>} />
+        <Route path="/product/:id" element={<CustomerAccessGate><ProductDetail /></CustomerAccessGate>} />
+        <Route path="/cart" element={<CustomerAccessGate><Cart /></CustomerAccessGate>} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
 
         {/* Customer Auth */}
-        <Route path="/customer/register" element={<CustomerRegister />} />
-        <Route path="/customer/verify-otp" element={<CustomerVerifyOtp />} />
-        <Route path="/customer/login" element={<CustomerLogin />} />
-        <Route path="/customer/forgot-password" element={<ForgotPassword />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/customer/register" element={<CustomerAccessGate action="register"><CustomerRegister /></CustomerAccessGate>} />
+        <Route path="/customer/verify-otp" element={<CustomerAccessGate><CustomerVerifyOtp /></CustomerAccessGate>} />
+        <Route path="/customer/login" element={<CustomerAccessGate><CustomerLogin /></CustomerAccessGate>} />
+        <Route path="/customer/forgot-password" element={<CustomerAccessGate><ForgotPassword /></CustomerAccessGate>} />
+        <Route path="/forgot-password" element={<CustomerAccessGate><ForgotPassword /></CustomerAccessGate>} />
+        <Route path="/reset-password/:token" element={<CustomerAccessGate><ResetPassword /></CustomerAccessGate>} />
 
         {/* Customer Checkout & Payment */}
         <Route
           path="/customer/checkout"
           element={
-            <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
-              <CustomerCheckout />
-            </ProtectedRoute>
+            <CustomerAccessGate>
+              <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
+                <CustomerCheckout />
+              </ProtectedRoute>
+            </CustomerAccessGate>
           }
         />
         <Route
           path="/customer/payment"
           element={
-            <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
-              <CustomerPayment />
-            </ProtectedRoute>
+            <CustomerAccessGate>
+              <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
+                <CustomerPayment />
+              </ProtectedRoute>
+            </CustomerAccessGate>
           }
         />
 
@@ -155,9 +160,11 @@ const AppRoutes = () => {
       <Route
         path="/customer"
         element={
-          <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
-            <CustomerLayout />
-          </ProtectedRoute>
+          <CustomerAccessGate>
+            <ProtectedRoute allowedRoles={['customer', 'staff', 'admin', 'owner']}>
+              <CustomerLayout />
+            </ProtectedRoute>
+          </CustomerAccessGate>
         }
       >
         <Route index element={<Navigate to="/customer/dashboard" replace />} />

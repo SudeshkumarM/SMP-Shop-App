@@ -65,7 +65,7 @@ const StaffHelp = () => {
                       <strong>Open POS Billing:</strong> Navigate to <Link to="/staff/billing" className="text-success fw-semibold">New Billing</Link> in the sidebar.
                     </li>
                     <li className="list-group-item border-0 ps-0">
-                      <strong>Add Product / Scan Barcode:</strong> Focus on the Barcode / SKU field and scan the item tag (e.g. <code>890123450001</code> for the Shirt) or type <strong>"Shirt"</strong> in the search bar.
+                      <strong>Add Product / Scan Barcode:</strong> Focus the Barcode / SKU field and scan a saved product label, enter its saved code, or find it in the catalog.
                     </li>
                     <li className="list-group-item border-0 ps-0">
                       <strong>Adjust Quantity:</strong> Enter the quantity purchased. The system automatically verifies that available stock is sufficient.
@@ -77,7 +77,7 @@ const StaffHelp = () => {
                       <strong>Apply Counter Discount (Optional):</strong> Select Flat (₹) or Percentage (%) discount if an authorized offer applies.
                     </li>
                     <li className="list-group-item border-0 ps-0">
-                      <strong>Collect Payment & Complete:</strong> Select payment mode (CASH, CARD, or UPI) and click <strong>Generate & Print Invoice</strong>.
+                      <strong>Collect Payment & Complete:</strong> Select Cash, Card, Manual UPI, or the Owner-configured UPI QR. Confirm actual receipt; for UPI, enter the transaction reference. A displayed or scanned QR alone is not payment confirmation.
                     </li>
                   </ol>
                   <div className="alert alert-success-subtle text-dark border py-2 small">

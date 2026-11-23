@@ -6,6 +6,7 @@ const AdminDeliverySettings = () => {
   const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const [settings, setSettings] = useState({
     enabled: true,
@@ -17,21 +18,32 @@ const AdminDeliverySettings = () => {
 
   const [simSubtotal, setSimSubtotal] = useState(500);
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await api.get('/admin/delivery-settings');
-        if (res.data.success && res.data.settings) {
-          setSettings(res.data.settings);
-        }
-      } catch (err) {
-        console.error('Failed to load delivery settings:', err.message);
-      } finally {
-        setLoading(false);
+  const fetchSettings = async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await api.get('/admin/delivery-settings');
+      if (res.data.success && res.data.settings) {
+        setSettings(res.data.settings);
+      } else {
+        setLoadError(true);
       }
-    };
+    } catch (err) {
+      setLoadError(true);
+      addToast(err.response?.data?.message || 'Failed to load delivery settings', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchSettings();
   }, []);
+
+  const setDeliveryEnabled = (enabled) => {
+    if (!enabled && !window.confirm('Turn off delivery charges for customer checkout and POS delivery?')) return;
+    setSettings((current) => ({ ...current, enabled }));
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -39,7 +51,10 @@ const AdminDeliverySettings = () => {
     try {
       const res = await api.put('/admin/delivery-settings', settings);
       if (res.data.success) {
+        setSettings(res.data.settings);
         addToast('Delivery charge settings saved successfully!', 'success');
+      } else {
+        addToast(res.data.message || 'Delivery settings were not saved.', 'error');
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to save delivery settings', 'error');
@@ -68,6 +83,11 @@ const AdminDeliverySettings = () => {
         <div className="text-center py-5">
           <div className="spinner-border text-primary" role="status"></div>
         </div>
+      ) : loadError ? (
+        <div className="smp-card p-4 text-white">
+          <p className="text-warning mb-3">The saved delivery state could not be loaded. Controls are unavailable until the database value is retrieved.</p>
+          <button type="button" className="btn btn-outline-light" onClick={fetchSettings}>Retry loading settings</button>
+        </div>
       ) : (
         <div className="row g-4">
           {/* Main Form */}
@@ -85,9 +105,12 @@ const AdminDeliverySettings = () => {
                       className="form-check-input"
                       type="checkbox"
                       checked={settings.enabled}
-                      onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
+                      onChange={(e) => setDeliveryEnabled(e.target.checked)}
                     />
                   </div>
+                  <span className={`badge ${settings.enabled ? 'bg-success' : 'bg-secondary'}`}>
+                    {settings.enabled ? 'ON' : 'OFF'}
+                  </span>
                 </div>
 
                 <div className="row g-3">

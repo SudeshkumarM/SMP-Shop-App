@@ -465,9 +465,12 @@ const AdminBarcodeManagement = ({ role = 'admin' }) => {
                       value={editForm.barcodeFormat}
                       onChange={(e) => setEditForm({ ...editForm, barcodeFormat: e.target.value })}
                     >
-                      <option value="CODE128">CODE128 (Universal Alphanumeric - Recommended)</option>
-                      <option value="EAN13">EAN-13 (Standard Retail 13-digit)</option>
-                      <option value="UPCA">UPC-A (Standard Retail 12-digit)</option>
+                      <option value="CODE128">Code 128</option>
+                      <option value="EAN13">EAN-13</option>
+                      <option value="EAN8">EAN-8</option>
+                      <option value="UPCA">UPC-A</option>
+                      <option value="UPCE">UPC-E</option>
+                      <option value="CODE39">Code 39</option>
                     </select>
                   </div>
 

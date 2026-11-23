@@ -7,7 +7,7 @@ const AdminLayout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="d-flex min-vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
+    <div className="portal-layout d-flex min-vh-100" style={{ backgroundColor: 'var(--smp-bg-primary)' }}>
       {mobileOpen && (
         <button
           type="button"

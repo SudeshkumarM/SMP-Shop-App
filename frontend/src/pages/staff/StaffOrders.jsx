@@ -11,9 +11,7 @@ const StaffOrders = () => {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      // Use general orders endpoint
-      const res = await api.get('/orders/my-orders'); // or admin orders
-      // In staff context, let's fetch shop orders
+      const res = await api.get('/orders');
       if (res.data.success) {
         setOrders(res.data.orders || []);
       }

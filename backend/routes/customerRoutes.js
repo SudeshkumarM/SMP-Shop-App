@@ -10,9 +10,11 @@ const {
   deleteAddress
 } = require('../controllers/customerController');
 const { protect, authorize } = require('../middleware/authMiddleware');
+const { customerSystemMaintenance } = require('../middleware/customerSystemMiddleware');
 
 router.use(protect);
 router.use(authorize('customer'));
+router.use(customerSystemMaintenance);
 
 router.get('/wishlist', getWishlist);
 router.post('/wishlist/:productId', addToWishlist);

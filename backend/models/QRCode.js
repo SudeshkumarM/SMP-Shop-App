@@ -25,6 +25,10 @@ const qrCodeSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  imageUrl: {
+    type: String,
+    default: ''
+  },
   description: {
     type: String,
     default: ''

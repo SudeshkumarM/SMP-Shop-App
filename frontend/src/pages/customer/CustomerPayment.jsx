@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
 import api from '../../services/api';
 import InvoicePrintModal from '../../components/pos/InvoicePrintModal';
+
+const createOrderRequestId = () => (
+  window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+);
 
 const CustomerPayment = () => {
   const location = useLocation();
@@ -14,9 +20,8 @@ const CustomerPayment = () => {
 
   const shippingAddress = location.state?.shippingAddress;
 
-  const [paymentMethod, setPaymentMethod] = useState('ONLINE'); // 'ONLINE' or 'COD'
-  const [onlineType, setOnlineType] = useState('UPI'); // 'UPI', 'CARD', 'NETBANKING'
-  const [upiId, setUpiId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('COD');
+  const orderRequestIdRef = useRef(createOrderRequestId());
   const [loading, setLoading] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -32,13 +37,14 @@ const CustomerPayment = () => {
     setLoading(true);
     try {
       const res = await api.post('/orders', {
+        requestId: orderRequestIdRef.current,
         shippingAddress,
-        paymentMethod: paymentMethod === 'COD' ? 'COD' : 'ONLINE',
-        notes: `Online Payment via ${onlineType}`
+        paymentMethod: 'COD',
+        expectedGrandTotal: cart.grandTotal
       });
 
       if (res.data.success) {
-        setConfirmedOrder(res.data.order);
+        setConfirmedOrder({ ...res.data.order, shopInfo: res.data.shopInfo });
         // Trigger celebratory confetti
         confetti({
           particleCount: 120,
@@ -50,6 +56,7 @@ const CustomerPayment = () => {
     } catch (err) {
       const msg = err.response?.data?.message || 'Payment processing failed';
       addToast(msg, 'error');
+      if (err.response?.status === 409) await fetchCart();
     } finally {
       setLoading(false);
     }
@@ -68,7 +75,7 @@ const CustomerPayment = () => {
 
           <h2 className="fw-bold brand-font text-success mb-1">Order Confirmed!</h2>
           <p className="text-muted mb-4">
-            Thank you for shopping with <strong>SMP Elite Fashions</strong>!
+            Thank you for shopping with us. Payment is due when your order is delivered.
           </p>
 
           <div className="bg-light p-3 rounded-3 text-start small mb-4">
@@ -77,7 +84,7 @@ const CustomerPayment = () => {
               <strong className="text-primary">{confirmedOrder.orderNumber}</strong>
             </div>
             <div className="d-flex justify-content-between mb-2">
-              <span className="text-muted">Total Paid:</span>
+              <span className="text-muted">Order Total:</span>
               <strong className="fs-6">₹{confirmedOrder.grandTotal?.toFixed(2)}</strong>
             </div>
             <div className="d-flex justify-content-between mb-2">
@@ -108,21 +115,18 @@ const CustomerPayment = () => {
             invoice={{
               invoiceNumber: confirmedOrder.invoiceNumber || `INV-${confirmedOrder.orderNumber}`,
               createdAt: confirmedOrder.createdAt,
-              shopInfo: {
-                name: 'SMP Elite Fashions',
-                address: '100 Feet Road, Anna Nagar, Chennai - 600040',
-                phone: '+91 98400 12345',
-                gstNumber: '33AAAAA0000A1Z5'
-              },
+              shopInfo: confirmedOrder.shopInfo || {},
               customerInfo: confirmedOrder.customerDetails,
               items: confirmedOrder.items,
               subtotal: confirmedOrder.subtotal,
               totalDiscount: confirmedOrder.totalDiscount,
               cgstAmount: Math.round((confirmedOrder.totalGst / 2) * 100) / 100,
-              sgstAmount: Math.round((confirmedOrder.totalGst / 2) * 100) / 100,
+              sgstAmount: Math.round((confirmedOrder.totalGst - confirmedOrder.totalGst / 2) * 100) / 100,
+              deliveryCharge: confirmedOrder.deliveryCharge,
               grandTotal: confirmedOrder.grandTotal,
               paymentMethod: confirmedOrder.paymentMethod,
-              paymentStatus: confirmedOrder.paymentStatus
+              paymentStatus: confirmedOrder.paymentStatus,
+              paymentDetails: confirmedOrder.paymentDetails
             }}
             onClose={() => setShowInvoiceModal(false)}
           />
@@ -148,59 +152,46 @@ const CustomerPayment = () => {
           <div className="smp-card p-4 bg-white mb-4">
             <h5 className="fw-bold brand-font mb-3">Choose Payment Mode</h5>
 
+            {/* Online payments remain unavailable until the provider is configured. */}
+            <div className="alert alert-warning small">
+              Card and online UPI payments are temporarily unavailable because a verified payment provider is not configured.
+            </div>
+
             {/* UPI Option */}
-            <div className={`p-3 rounded-3 border mb-3 cursor-pointer ${paymentMethod === 'ONLINE' && onlineType === 'UPI' ? 'border-primary bg-primary-subtle' : 'bg-light'}`}>
+            <div className="p-3 rounded-3 border mb-3 bg-light">
               <div className="form-check d-flex align-items-center gap-3">
                 <input
                   type="radio"
                   name="paymentMode"
                   id="payUpi"
                   className="form-check-input"
-                  checked={paymentMethod === 'ONLINE' && onlineType === 'UPI'}
-                  onChange={() => { setPaymentMethod('ONLINE'); setOnlineType('UPI'); }}
+                  disabled
                 />
                 <label className="form-check-label fw-bold d-flex align-items-center gap-2 cursor-pointer w-100" htmlFor="payUpi">
                   <i className="bi bi-qr-code text-primary fs-5"></i>
                   <div>
-                    <div>Instant UPI (Google Pay, PhonePe, Paytm, QR)</div>
-                    <small className="text-muted fw-normal">Zero transaction fee, immediate confirmation</small>
+                    <div>Online UPI</div>
+                    <small className="text-muted fw-normal">Unavailable until payment processing is configured.</small>
                   </div>
                 </label>
               </div>
-
-              {paymentMethod === 'ONLINE' && onlineType === 'UPI' && (
-                <div className="mt-3 pt-3 border-top">
-                  <label className="form-label small fw-semibold">Enter UPI ID (e.g. mobile@upi)</label>
-                  <div className="input-group" style={{ maxWidth: '360px' }}>
-                    <input
-                      type="text"
-                      placeholder="username@okhdfcbank"
-                      className="form-control"
-                      value={upiId}
-                      onChange={(e) => setUpiId(e.target.value)}
-                    />
-                    <span className="input-group-text bg-success text-white small">Verified</span>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Card Option */}
-            <div className={`p-3 rounded-3 border mb-3 cursor-pointer ${paymentMethod === 'ONLINE' && onlineType === 'CARD' ? 'border-primary bg-primary-subtle' : 'bg-light'}`}>
+            <div className="p-3 rounded-3 border mb-3 bg-light">
               <div className="form-check d-flex align-items-center gap-3">
                 <input
                   type="radio"
                   name="paymentMode"
                   id="payCard"
                   className="form-check-input"
-                  checked={paymentMethod === 'ONLINE' && onlineType === 'CARD'}
-                  onChange={() => { setPaymentMethod('ONLINE'); setOnlineType('CARD'); }}
+                  disabled
                 />
                 <label className="form-check-label fw-bold d-flex align-items-center gap-2 cursor-pointer w-100" htmlFor="payCard">
                   <i className="bi bi-credit-card-2-front text-primary fs-5"></i>
                   <div>
                     <div>Credit / Debit Card (Visa, MasterCard, RuPay)</div>
-                    <small className="text-muted fw-normal">PCI-DSS Encrypted sandbox checkout</small>
+                    <small className="text-muted fw-normal">Unavailable until payment processing is configured.</small>
                   </div>
                 </label>
               </div>
@@ -242,13 +233,12 @@ const CustomerPayment = () => {
             </div>
 
             <div className="small text-muted my-3">
-              <i className="bi bi-shield-check text-success me-1"></i>
-              Safe & Encrypted 256-Bit SSL Checkout. No raw payment credentials stored.
+              Cash on Delivery orders are created with payment status pending until the payment is collected.
             </div>
 
             <button
               onClick={handlePlaceOrder}
-              disabled={loading}
+              disabled={loading || cart.items.length === 0 || cart.items.some((item) => item.isAvailable === false)}
               className="btn btn-success btn-lg w-100 rounded-pill fw-bold shadow-sm py-3 text-uppercase"
             >
               {loading ? (
@@ -257,7 +247,7 @@ const CustomerPayment = () => {
                   Processing Order...
                 </>
               ) : (
-                `Pay ₹${(cart.grandTotal || 0).toFixed(2)} & Place Order`
+                `Place COD Order · ₹${(cart.grandTotal || 0).toFixed(2)}`
               )}
             </button>
           </div>

@@ -514,7 +514,9 @@ const createSupplier = async (req, res) => {
 
 const getShopSettings = async (req, res) => {
   try {
-    const shop = await Shop.findById(req.user.shopId);
+    const shop = req.user.shopId
+      ? await Shop.findById(req.user.shopId)
+      : await Shop.findOne({ isActive: true }).sort({ createdAt: 1, _id: 1 });
     res.status(200).json({ success: true, shop });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -524,7 +526,9 @@ const getShopSettings = async (req, res) => {
 const updateShopSettings = async (req, res) => {
   try {
     const { name, contactPhone, contactEmail, gstNumber, address, settings } = req.body;
-    const shop = await Shop.findById(req.user.shopId);
+    const shop = req.user.shopId
+      ? await Shop.findById(req.user.shopId)
+      : await Shop.findOne({ isActive: true }).sort({ createdAt: 1, _id: 1 });
 
     if (!shop) {
       return res.status(404).json({ success: false, message: 'Shop not found' });
@@ -535,7 +539,16 @@ const updateShopSettings = async (req, res) => {
     if (contactEmail) shop.contactEmail = contactEmail;
     if (gstNumber) shop.gstNumber = gstNumber;
     if (address) shop.address = { ...shop.address, ...address };
-    if (settings) shop.settings = { ...shop.settings, ...settings };
+    if (settings) {
+      if (settings.lowStockThreshold !== undefined) {
+        shop.settings.lowStockThreshold = Number(settings.lowStockThreshold);
+      }
+      if (settings.invoicePrefix !== undefined) {
+        shop.settings.invoicePrefix = String(settings.invoicePrefix);
+      }
+      shop.settings.updatedAt = new Date();
+      shop.settings.updatedBy = req.user._id;
+    }
 
     await shop.save();
     res.status(200).json({ success: true, message: 'Shop settings updated successfully', shop });
@@ -572,7 +585,9 @@ const updateDeliverySettings = async (req, res) => {
     shop.settings = shop.settings || {};
     shop.settings.deliverySettings = {
       ...shop.settings.deliverySettings,
-      ...req.body
+      ...req.body,
+      updatedAt: new Date(),
+      updatedBy: req.user._id
     };
     await shop.save();
     emitRealtimeUpdate(req.app, 'settings:updated', { type: 'delivery', settings: shop.settings.deliverySettings });
@@ -627,7 +642,9 @@ const updateGstSettings = async (req, res) => {
     shop.settings = shop.settings || {};
     shop.settings.gstSettings = {
       ...shop.settings.gstSettings,
-      ...req.body
+      ...req.body,
+      updatedAt: new Date(),
+      updatedBy: req.user._id
     };
     if (req.body.gstNumber) {
       shop.gstNumber = req.body.gstNumber;
@@ -709,6 +726,8 @@ const updateWhatsAppSettings = async (req, res) => {
     }
 
     shop.settings.whatsappSettings = updated;
+    shop.settings.whatsappSettings.updatedAt = new Date();
+    shop.settings.whatsappSettings.updatedBy = req.user._id;
     await shop.save();
 
     emitRealtimeUpdate(req.app, 'whatsapp:settings:updated', { settings: updated, updatedBy: req.user.role });

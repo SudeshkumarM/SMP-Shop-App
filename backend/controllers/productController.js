@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
 const Inventory = require('../models/Inventory');
@@ -7,6 +8,58 @@ const QRCode = require('../models/QRCode');
 const xlsx = require('xlsx');
 const { generateProductBarcode } = require('../utils/generateBarcode');
 const { emitRealtimeUpdate } = require('../utils/realtime');
+
+const isValidCategoryImage = (image) => {
+  if (typeof image !== 'string') return false;
+  const value = image.trim();
+  if (!value) return true;
+  if (value.startsWith('/images/') || value.startsWith('/uploads/')) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const buildCategoryFilter = (searchValue, statusValue) => {
+  const status = String(statusValue || 'ACTIVE').trim().toUpperCase();
+  if (!['ALL', 'ACTIVE', 'INACTIVE'].includes(status)) {
+    return { error: 'Status must be ALL, ACTIVE, or INACTIVE.' };
+  }
+
+  const clauses = [];
+  if (status === 'ACTIVE') {
+    clauses.push({
+      $or: [
+        { status: /^ACTIVE$/i },
+        { status: { $exists: false }, isActive: true }
+      ]
+    });
+  } else if (status === 'INACTIVE') {
+    clauses.push({
+      $or: [
+        { status: /^INACTIVE$/i },
+        { status: { $exists: false }, isActive: false }
+      ]
+    });
+  }
+
+  if (typeof searchValue === 'string' && searchValue.trim()) {
+    const search = searchValue.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clauses.push({
+      $or: [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { categoryId: { $regex: search, $options: 'i' } }
+      ]
+    });
+  }
+
+  if (clauses.length === 0) return { filter: {} };
+  if (clauses.length === 1) return { filter: clauses[0] };
+  return { filter: { $and: clauses } };
+};
 
 /**
  * @desc    Get All Products with full filtering and search
@@ -32,19 +85,31 @@ const getProducts = async (req, res) => {
       limit = 24
     } = req.query;
 
-    const query = { isActive: true };
+    const canManageInactive = Boolean(
+      req.user && ['admin', 'owner'].includes(req.user.role)
+    );
+    const query = canManageInactive ? {} : { isActive: true };
 
-    if (shopId) {
+    if (req.user?.shopId && req.user.role !== 'owner') {
+      query.shopId = req.user.shopId;
+    } else if (shopId) {
       query.shopId = shopId;
+    } else if (req.user && ['admin', 'staff'].includes(req.user.role)) {
+      const activeShop = await Shop.findOne({ isActive: true })
+        .sort({ createdAt: 1, _id: 1 })
+        .select('_id')
+        .lean();
+      if (activeShop) query.shopId = activeShop._id;
     }
 
     if (keyword) {
+      const escapedKeyword = String(keyword).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { brand: { $regex: keyword, $options: 'i' } },
-        { sku: { $regex: keyword, $options: 'i' } },
-        { barcode: { $regex: keyword, $options: 'i' } },
-        { tags: { $in: [new RegExp(keyword, 'i')] } }
+        { name: { $regex: escapedKeyword, $options: 'i' } },
+        { brand: { $regex: escapedKeyword, $options: 'i' } },
+        { sku: { $regex: escapedKeyword, $options: 'i' } },
+        { barcode: { $regex: escapedKeyword, $options: 'i' } },
+        { tags: { $in: [new RegExp(escapedKeyword, 'i')] } }
       ];
     }
 
@@ -94,8 +159,12 @@ const getProducts = async (req, res) => {
     else if (sort === 'rating') sortOptions = { rating: -1 };
     else if (sort === 'popular') sortOptions = { numReviews: -1 };
 
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const parsedPage = Number.parseInt(page, 10);
+    const parsedLimit = Number.parseInt(limit, 10);
+    const pageNum = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limitNum = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 100)
+      : 24;
     const skip = (pageNum - 1) * limitNum;
 
     const total = await Product.countDocuments(query);
@@ -126,16 +195,22 @@ const getProducts = async (req, res) => {
 const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    let product;
+    const filter = {};
+    if (!req.user || !['admin', 'owner'].includes(req.user.role)) {
+      filter.isActive = true;
+    }
+    if (req.user?.shopId && req.user.role !== 'owner') {
+      filter.shopId = req.user.shopId;
+    }
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      product = await Product.findById(id).populate('category', 'name slug').populate('shopId', 'name gstNumber settings');
+      filter._id = id;
     } else {
-      // Find by barcode or SKU
-      product = await Product.findOne({
-        $or: [{ barcode: id }, { sku: id.toUpperCase() }]
-      }).populate('category', 'name slug').populate('shopId', 'name gstNumber settings');
+      filter.$or = [{ barcode: id }, { sku: id.toUpperCase() }];
     }
+    const product = await Product.findOne(filter)
+      .populate('category', 'name slug')
+      .populate('shopId', 'name gstNumber settings');
 
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
@@ -164,6 +239,7 @@ const getProductById = async (req, res) => {
  * @access  Private (Admin, Owner, Staff)
  */
 const createProduct = async (req, res) => {
+  let session;
   try {
     const {
       name,
@@ -188,6 +264,34 @@ const createProduct = async (req, res) => {
       tags = []
     } = req.body;
 
+    if (!name?.trim() || typeof description !== 'string' || !description.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product name and description are required.'
+      });
+    }
+
+    const numericFields = {
+      costPrice: costPrice === undefined || costPrice === '' ? 0 : Number(costPrice),
+      originalPrice: Number(originalPrice),
+      sellingPrice: sellingPrice === undefined || sellingPrice === ''
+        ? Number(originalPrice)
+        : Number(sellingPrice),
+      availableQuantity: Number(availableQuantity),
+      lowStockThreshold: Number(lowStockThreshold),
+      discountPercent: Number(discountPercent),
+      gstPercent: Number(gstPercent)
+    };
+    if (
+      Object.values(numericFields).some((value) => !Number.isFinite(value) || value < 0) ||
+      !Number.isInteger(numericFields.availableQuantity) ||
+      !Number.isInteger(numericFields.lowStockThreshold) ||
+      numericFields.discountPercent > 100 ||
+      numericFields.gstPercent > 100
+    ) {
+      return res.status(400).json({ success: false, message: 'Product prices, stock, and tax values are invalid.' });
+    }
+
     // Strict Category-First Validation
     if (!category) {
       return res.status(400).json({
@@ -204,14 +308,29 @@ const createProduct = async (req, res) => {
       });
     }
 
-    let shopId = req.user?.shopId || req.body?.shopId;
+    let shopId = req.user?.shopId ||
+      (req.user?.role === 'owner' ? req.body?.shopId : null);
     if (!shopId) {
-      const defaultShop = await Shop.findOne({ isActive: true });
+      const defaultShop = await Shop.findOne({ isActive: true }).sort({ createdAt: 1, _id: 1 });
       if (defaultShop) {
         shopId = defaultShop._id;
       } else {
         return res.status(400).json({ success: false, message: 'Shop ID is required' });
       }
+    }
+    if (existingCategory.shopId && String(existingCategory.shopId) !== String(shopId)) {
+      return res.status(400).json({ success: false, message: 'The selected category does not belong to this shop.' });
+    }
+
+    const targetBarcode = typeof barcode === 'string' && barcode.trim()
+      ? barcode.trim()
+      : generateProductBarcode(sku || name);
+    const duplicateBarcode = await Product.findOne({
+      shopId,
+      barcode: targetBarcode
+    }).select('_id');
+    if (duplicateBarcode) {
+      return res.status(409).json({ success: false, message: 'This barcode is already assigned to another active product.' });
     }
 
     // Process multiple images
@@ -223,27 +342,27 @@ const createProduct = async (req, res) => {
     }
 
     // Final price calculation with GST
-    const calculatedGst = ((sellingPrice || originalPrice) * gstPercent) / 100;
-    const finalPrice = Math.round(((sellingPrice || originalPrice) + calculatedGst) * 100) / 100;
+    const baseSellingPrice = numericFields.sellingPrice;
+    const finalPrice = Math.round((baseSellingPrice + (baseSellingPrice * numericFields.gstPercent) / 100) * 100) / 100;
+    session = await mongoose.startSession();
+    session.startTransaction();
 
-    const generatedBarcode = barcode || generateProductBarcode(sku || name);
-
-    const product = await Product.create({
-      name,
+    const [product] = await Product.create([{
+      name: name.trim(),
       sku: (sku || `SKU-${Date.now().toString().slice(-6)}`).toUpperCase(),
-      barcode: generatedBarcode,
+      barcode: targetBarcode,
       brand: brand || 'SMP Fashion',
       category: existingCategory._id,
       shopId,
       description,
-      costPrice: costPrice || Math.round(originalPrice * 0.6),
-      originalPrice,
-      sellingPrice: sellingPrice || originalPrice,
-      discountPercent,
-      gstPercent,
+      costPrice: costPrice === undefined || costPrice === '' ? Math.round(numericFields.originalPrice * 0.6) : numericFields.costPrice,
+      originalPrice: numericFields.originalPrice,
+      sellingPrice: baseSellingPrice,
+      discountPercent: numericFields.discountPercent,
+      gstPercent: numericFields.gstPercent,
       finalPrice,
-      availableQuantity,
-      lowStockThreshold,
+      availableQuantity: numericFields.availableQuantity,
+      lowStockThreshold: numericFields.lowStockThreshold,
       images: productImages,
       sizes,
       colours,
@@ -251,30 +370,32 @@ const createProduct = async (req, res) => {
       isFeatured,
       isTrending,
       tags
-    });
+    }], { session });
 
-    // Create or update Inventory record
     await Inventory.findOneAndUpdate(
       { shopId, productId: product._id },
       {
-        currentStock: availableQuantity,
+        currentStock: numericFields.availableQuantity,
         costPrice: product.costPrice,
         sellingPrice: product.sellingPrice,
-        reorderLevel: lowStockThreshold,
+        reorderLevel: numericFields.lowStockThreshold,
         $push: {
           stockLogs: {
             type: 'PURCHASE',
-            quantity: availableQuantity,
+            quantity: numericFields.availableQuantity,
             previousStock: 0,
-            newStock: availableQuantity,
+            newStock: numericFields.availableQuantity,
             unitCost: product.costPrice,
             notes: 'Initial Product Stock Entry',
             performedBy: req.user._id
           }
         }
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, session }
     );
+    await session.commitTransaction();
+
+    emitRealtimeUpdate(req.app, 'product:updated', { product });
 
     res.status(201).json({
       success: true,
@@ -282,7 +403,16 @@ const createProduct = async (req, res) => {
       product
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    if (session?.inTransaction()) await session.abortTransaction();
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'A product with this SKU or barcode already exists in this shop.' });
+    }
+    if (error.name === 'ValidationError' || error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    res.status(500).json({ success: false, message: 'Product could not be saved. No product or inventory changes were committed.' });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 
@@ -357,8 +487,10 @@ const updateProduct = async (req, res) => {
     if (isActive !== undefined) product.isActive = isActive;
 
     // Recalculate final price
-    const gstRate = product.gstPercent || 5;
-    const baseSelling = product.sellingPrice || product.originalPrice;
+    const gstRate = Number.isFinite(Number(product.gstPercent)) ? Number(product.gstPercent) : 5;
+    const baseSelling = Number.isFinite(Number(product.sellingPrice))
+      ? Number(product.sellingPrice)
+      : Number(product.originalPrice);
     const gstVal = (baseSelling * gstRate) / 100;
     product.finalPrice = Math.round((baseSelling + gstVal) * 100) / 100;
 
@@ -435,22 +567,15 @@ const deleteProduct = async (req, res) => {
 const getCategories = async (req, res) => {
   try {
     const { search, status } = req.query;
-    const filter = {};
-
-    if (status && status !== 'all') {
-      filter.status = status.toUpperCase();
+    const result = buildCategoryFilter(search, status);
+    if (result.error) {
+      return res.status(400).json({
+        success: false,
+        message: result.error
+      });
     }
 
-    if (search && search.trim()) {
-      const q = search.trim();
-      filter.$or = [
-        { name: { $regex: q, $options: 'i' } },
-        { description: { $regex: q, $options: 'i' } },
-        { categoryId: { $regex: q, $options: 'i' } }
-      ];
-    }
-
-    const categories = await Category.find(filter).sort({ displayOrder: 1, createdAt: -1 });
+    const categories = await Category.find(result.filter).sort({ displayOrder: 1, createdAt: -1 });
 
     // Compute products count for each category
     const categoriesWithCount = await Promise.all(
@@ -458,7 +583,8 @@ const getCategories = async (req, res) => {
         const productsCount = await Product.countDocuments({ category: cat._id, isActive: true });
         return {
           ...cat.toObject(),
-          productsCount
+          productsCount,
+          productCount: productsCount
         };
       })
     );
@@ -477,6 +603,12 @@ const getCategories = async (req, res) => {
 const createCategory = async (req, res) => {
   try {
     const { name, description, image, categoryId, status } = req.body;
+    if (image !== undefined && !isValidCategoryImage(image)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Category image must be an HTTP(S) URL or an application image path.'
+      });
+    }
     let shopId = req.user?.shopId || req.body.shopId;
     if (!shopId) {
       const fallbackShop = await Shop.findOne({ isActive: true });
@@ -508,7 +640,9 @@ const createCategory = async (req, res) => {
       name: name.trim(),
       slug,
       description: description || '',
-      image: image || '',
+      image: typeof image === 'string' && image.trim()
+        ? image.trim()
+        : '/images/category-default.svg',
       status: status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
       isActive: status !== 'INACTIVE',
       shopId
@@ -530,6 +664,12 @@ const createCategory = async (req, res) => {
 const updateCategory = async (req, res) => {
   try {
     const { name, description, image, categoryId, status } = req.body;
+    if (image !== undefined && !isValidCategoryImage(image)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Category image must be an HTTP(S) URL or an application image path.'
+      });
+    }
     const category = await Category.findById(req.params.id);
 
     if (!category) {
@@ -809,7 +949,7 @@ const getQRCodesList = async (req, res) => {
  */
 const createQRCode = async (req, res) => {
   try {
-    const { title, qrType, targetId, targetName, qrData, description } = req.body;
+    const { title, qrType, targetId, targetName, qrData, imageUrl, description, status } = req.body;
     let shopId = req.user?.shopId || req.body.shopId;
     if (!shopId) {
       const fallbackShop = await Shop.findOne({ isActive: true });
@@ -819,6 +959,9 @@ const createQRCode = async (req, res) => {
     if (!title || !qrData) {
       return res.status(400).json({ success: false, message: 'Title and QR Data are required' });
     }
+    if (imageUrl && !isValidQrImageUrl(imageUrl)) {
+      return res.status(400).json({ success: false, message: 'QR image must use an HTTP(S) URL or an uploaded /uploads/ image path.' });
+    }
 
     const qr = await QRCode.create({
       title: title.trim(),
@@ -826,9 +969,10 @@ const createQRCode = async (req, res) => {
       targetId: targetId || '',
       targetName: targetName || '',
       qrData: qrData.trim(),
+      imageUrl: imageUrl || '',
       description: description || '',
       shopId,
-      status: 'ACTIVE'
+      status: (status || 'ACTIVE').toUpperCase()
     });
 
     res.status(201).json({ success: true, message: 'QR Code generated successfully', qrCode: qr });
@@ -844,7 +988,7 @@ const createQRCode = async (req, res) => {
  */
 const updateQRCode = async (req, res) => {
   try {
-    const { title, qrData, description, status } = req.body;
+    const { title, qrType, targetId, targetName, qrData, imageUrl, description, status } = req.body;
     const qr = await QRCode.findById(req.params.id);
 
     if (!qr) {
@@ -852,7 +996,14 @@ const updateQRCode = async (req, res) => {
     }
 
     if (title) qr.title = title.trim();
+    if (qrType) qr.qrType = qrType.toUpperCase();
+    if (targetId !== undefined) qr.targetId = targetId;
+    if (targetName !== undefined) qr.targetName = targetName;
     if (qrData) qr.qrData = qrData.trim();
+    if (imageUrl !== undefined && imageUrl && !isValidQrImageUrl(imageUrl)) {
+      return res.status(400).json({ success: false, message: 'QR image must use an HTTP(S) URL or an uploaded /uploads/ image path.' });
+    }
+    if (imageUrl !== undefined) qr.imageUrl = imageUrl;
     if (description !== undefined) qr.description = description;
     if (status) qr.status = status.toUpperCase();
 
@@ -861,6 +1012,18 @@ const updateQRCode = async (req, res) => {
     res.status(200).json({ success: true, message: 'QR Code updated successfully', qrCode: qr });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const isValidQrImageUrl = (value) => {
+  if (typeof value !== 'string') return false;
+  if (/^\/uploads\/[A-Za-z0-9._-]+$/.test(value)) return true;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
   }
 };
 
@@ -1085,17 +1248,22 @@ const exportProductsExcel = async (req, res) => {
 
 const getShopDeliveryRules = async (req, res) => {
   try {
-    const shop = await Shop.findOne({ isActive: true });
-    const rules = (shop && shop.settings && shop.settings.deliverySettings) ? shop.settings.deliverySettings : {
-      enabled: true,
-      deliveryCharge: 50,
-      freeDeliveryThreshold: 1000,
-      chargeType: 'FLAT',
-      description: 'Standard Express Shipping (2-3 business days)'
-    };
+    const filter = { isActive: true };
+    if (req.query.shopId) {
+      if (!mongoose.Types.ObjectId.isValid(req.query.shopId)) {
+        return res.status(400).json({ success: false, message: 'Shop ID is invalid.' });
+      }
+      filter._id = req.query.shopId;
+    }
+    const shop = await Shop.findOne(filter).sort({ createdAt: 1, _id: 1 });
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'Delivery rules are unavailable for this shop.' });
+    }
+    const rules = shop.settings?.deliverySettings;
     res.status(200).json({ success: true, delivery: rules });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('[ProductController] Could not load shop delivery rules:', error);
+    res.status(500).json({ success: false, message: 'Delivery rules could not be loaded.' });
   }
 };
 
@@ -1114,6 +1282,7 @@ const getActiveCoupons = async (req, res) => {
 };
 
 module.exports = {
+  buildCategoryFilter,
   getProducts,
   getProductById,
   createProduct,

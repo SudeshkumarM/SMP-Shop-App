@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "seed": "node utils/seedData.js",
     "test:auth": "node --test test/authValidation.test.js test/smsService.test.js test/dbConfig.test.js",
+    "test:billing": "node --test test/billingCalculations.test.js test/staffBillingApi.test.js",
     "test:e2e": "node test_e2e_flow.js",
     "test:load": "node test/loadTestConcurrency.js"
   },

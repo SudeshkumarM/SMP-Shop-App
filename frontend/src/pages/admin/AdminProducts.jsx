@@ -9,11 +9,15 @@ const AdminProducts = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
+  const [productPage, setProductPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const { addToast } = useToast();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
 
   const initialNewProd = {
     name: '',
@@ -38,14 +42,19 @@ const AdminProducts = () => {
 
   const [newProd, setNewProd] = useState(initialNewProd);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (page = productPage) => {
     setLoading(true);
     try {
       const [prodRes, catRes] = await Promise.all([
-        api.get('/products', { params: { keyword, limit: 100 } }),
+        api.get('/products', { params: { keyword, page, limit: 25 } }),
         api.get('/products/categories/list')
       ]);
-      if (prodRes.data.success) setProducts(prodRes.data.products || []);
+      if (prodRes.data.success) {
+        setProducts(prodRes.data.products || []);
+        setTotalPages(prodRes.data.totalPages || 1);
+        setTotalProducts(prodRes.data.total || 0);
+        setProductPage(prodRes.data.currentPage || page);
+      }
       if (catRes.data.success) {
         const catList = catRes.data.categories || [];
         setCategories(catList);
@@ -54,7 +63,7 @@ const AdminProducts = () => {
         }
       }
     } catch (err) {
-      console.error(err);
+      addToast(err.response?.data?.message || 'Failed to load products and categories.', 'error');
     } finally {
       setLoading(false);
     }
@@ -75,11 +84,12 @@ const AdminProducts = () => {
   const handleCreateProduct = async (e) => {
     e.preventDefault();
 
-    if (!newProd.category) {
-      addToast('A Category is required. Please create a Category first.', 'error');
+    if (!newProd.name.trim() || !newProd.description.trim() || !newProd.category) {
+      addToast('Product name, description, and category are required.', 'error');
       return;
     }
 
+    setSavingProduct(true);
     try {
       const payload = {
         ...newProd,
@@ -99,10 +109,14 @@ const AdminProducts = () => {
         addToast('Product created successfully in catalog', 'success');
         setShowAddModal(false);
         setNewProd(initialNewProd);
-        fetchProducts();
+        await fetchProducts(1);
+      } else {
+        addToast(res.data.message || 'Product was not saved.', 'error');
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Failed to create product', 'error');
+    } finally {
+      setSavingProduct(false);
     }
   };
 
@@ -126,7 +140,7 @@ const AdminProducts = () => {
       if (res.data.success) {
         addToast('Product updated successfully', 'success');
         setEditingProduct(null);
-        fetchProducts();
+        await fetchProducts(productPage);
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Update failed', 'error');
@@ -139,10 +153,25 @@ const AdminProducts = () => {
       const res = await api.delete(`/products/${id}`);
       if (res.data.success) {
         addToast('Product deleted from active catalog', 'info');
-        fetchProducts();
+        await fetchProducts(productPage);
       }
     } catch (e) {
       addToast('Delete failed', 'error');
+    }
+  };
+
+  const handleReactivate = async (product) => {
+    if (!window.confirm(`Reactivate "${product.name}" for purchase in the active catalog?`)) return;
+    try {
+      const res = await api.put(`/products/${product._id}`, { isActive: true });
+      if (res.data.success) {
+        addToast('Product reactivated successfully', 'success');
+        await fetchProducts(productPage);
+      } else {
+        addToast(res.data.message || 'Product was not reactivated.', 'error');
+      }
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Product could not be reactivated.', 'error');
     }
   };
 
@@ -164,7 +193,7 @@ const AdminProducts = () => {
       });
       if (res.data.success) {
         addToast(res.data.message, 'success');
-        fetchProducts();
+        await fetchProducts(1);
       }
     } catch (err) {
       addToast(err.response?.data?.message || 'Import failed', 'error');
@@ -224,7 +253,7 @@ const AdminProducts = () => {
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
-          <button onClick={fetchProducts} className="btn btn-primary px-4 fw-semibold">
+          <button onClick={() => fetchProducts(1)} className="btn btn-primary px-4 fw-semibold">
             Search
           </button>
         </div>
@@ -232,6 +261,11 @@ const AdminProducts = () => {
 
       {/* Products Table */}
       <div className="smp-card p-4 bg-white shadow-sm">
+        {!loading && (
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <small className="text-muted">Showing {products.length} of {totalProducts} products</small>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-5">
             <div className="spinner-border text-primary" role="status"></div>
@@ -294,7 +328,10 @@ const AdminProducts = () => {
                         )}
                         <div>
                           <div className="fw-bold text-dark">{p.name}</div>
-                          <small className="text-muted">{p.brand || 'SMP'}</small>
+                          <small className="text-muted">{p.brand || 'SMP'} · </small>
+                          <span className={`badge ${p.isActive ? 'bg-success' : 'bg-secondary'}`}>
+                            {p.isActive ? 'Active' : 'Inactive'}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -331,13 +368,23 @@ const AdminProducts = () => {
                         >
                           <i className="bi bi-pencil"></i>
                         </button>
-                        <button
-                          onClick={() => handleDelete(p._id)}
-                          className="btn btn-outline-danger"
-                          title="Delete"
-                        >
-                          <i className="bi bi-trash3"></i>
-                        </button>
+                        {p.isActive ? (
+                          <button
+                            onClick={() => handleDelete(p._id)}
+                            className="btn btn-outline-danger"
+                            title="Deactivate"
+                          >
+                            <i className="bi bi-trash3"></i>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleReactivate(p)}
+                            className="btn btn-outline-success"
+                            title="Reactivate"
+                          >
+                            <i className="bi bi-arrow-counterclockwise"></i>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -346,12 +393,31 @@ const AdminProducts = () => {
             </table>
           </div>
         )}
+        {!loading && totalPages > 1 && (
+          <nav className="d-flex justify-content-center mt-3" aria-label="Product pages">
+            <ul className="pagination pagination-sm mb-0">
+              <li className={`page-item ${productPage <= 1 ? 'disabled' : ''}`}>
+                <button type="button" className="page-link" disabled={productPage <= 1} onClick={() => fetchProducts(productPage - 1)}>
+                  Previous
+                </button>
+              </li>
+              <li className="page-item disabled">
+                <span className="page-link">Page {productPage} of {totalPages}</span>
+              </li>
+              <li className={`page-item ${productPage >= totalPages ? 'disabled' : ''}`}>
+                <button type="button" className="page-link" disabled={productPage >= totalPages} onClick={() => fetchProducts(productPage + 1)}>
+                  Next
+                </button>
+              </li>
+            </ul>
+          </nav>
+        )}
       </div>
 
       {/* Add Product Modal */}
       {showAddModal && (
         <div className="modal show d-block bg-dark bg-opacity-50 fade-in" tabIndex="-1">
-          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable product-form-modal">
             <div className="modal-content rounded-4 border-0 shadow">
               <div className="modal-header border-bottom">
                 <h5 className="modal-title fw-bold text-dark">
@@ -515,7 +581,7 @@ const AdminProducts = () => {
                     <div className="col-12">
                       <label className="form-label small fw-semibold">Product Description <span className="text-danger">*</span></label>
                       <textarea
-                        rows="3"
+                        rows="5"
                         required
                         placeholder="Enter comprehensive product details, fabric, fit, and care instructions..."
                         className="form-control"
@@ -532,10 +598,10 @@ const AdminProducts = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={categories.length === 0}
+                    disabled={categories.length === 0 || savingProduct}
                     className="btn btn-primary rounded-pill px-4 fw-semibold"
                   >
-                    Save Product
+                    {savingProduct ? 'Saving Product...' : 'Save Product'}
                   </button>
                 </div>
               </form>
@@ -547,7 +613,7 @@ const AdminProducts = () => {
       {/* Edit Product Modal */}
       {editingProduct && (
         <div className="modal show d-block bg-dark bg-opacity-50 fade-in" tabIndex="-1">
-          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable product-form-modal">
             <div className="modal-content rounded-4 border-0 shadow">
               <div className="modal-header border-bottom">
                 <h5 className="modal-title fw-bold text-dark">

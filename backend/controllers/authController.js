@@ -12,7 +12,7 @@ const {
   verifyOtp,
   consumeOtp
 } = require('../services/otpService');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, sendLoginNotification } = require('../services/emailService');
 const {
   INDIAN_MOBILE_PATTERN,
   normalizeEmail,
@@ -34,6 +34,29 @@ const respondAuthError = (res, error, operation, fallbackMessage) => {
   console.error(`[Auth] ${operation} failed (${error?.code || error?.name || 'unknown error'}).`);
   return res.status(500).json({ success: false, message: fallbackMessage });
 };
+
+const getCustomerAccess = async () => {
+  const shop = await Shop.findOne({ isActive: true }).select('settings.customerAccess');
+  const access = shop?.settings?.customerAccess;
+  return {
+    customerLoginEnabled: access?.customerLoginEnabled !== false,
+    customerRegistrationEnabled: access?.customerRegistrationEnabled !== false,
+    temporaryUnavailable: access?.temporaryUnavailable === true,
+    unavailableTitle: access?.unavailableTitle || 'Temporarily Unavailable',
+    unavailableMessage: access?.unavailableMessage || ''
+  };
+};
+
+const sendCustomerAccessDisabled = (res, access, action) => res.status(403).json({
+  success: false,
+  code: 'CUSTOMER_ACCESS_DISABLED',
+  message: action === 'register'
+    ? 'Customer registration is temporarily unavailable.'
+    : 'Customer login is temporarily unavailable.',
+  title: access.unavailableTitle,
+  maintenanceMessage: access.unavailableMessage || 'Customer services are temporarily unavailable. Please try again later.',
+  access
+});
 
 const createCustomerCode = () =>
   `CUST-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -75,6 +98,10 @@ const registerCustomer = async (req, res) => {
   let user;
   let customer;
   try {
+    const access = await getCustomerAccess();
+    if (access.temporaryUnavailable || !access.customerRegistrationEnabled) {
+      return sendCustomerAccessDisabled(res, access, 'register');
+    }
     const validation = validateRegistration(req.body);
     if (validation.error) {
       return res.status(400).json({ success: false, message: validation.error });
@@ -132,10 +159,13 @@ const registerCustomer = async (req, res) => {
       addresses: createCustomerAddresses(registration)
     });
 
-    return res.status(201).json({
+    await createAndSendOtp(email, 'EMAIL_VERIFICATION', { channel: 'email' });
+
+    return res.status(202).json({
       success: true,
+      requiresEmailVerification: true,
       welcomeMessage: `Welcome ${user.name}!`,
-      message: `Registration successful, ${user.name}. You can now sign in with your credentials.`,
+      message: `Registration successful. A verification code was sent to ${email}.`,
       user: {
         id: user._id,
         name: user.name,
@@ -161,6 +191,59 @@ const registerCustomer = async (req, res) => {
   }
 };
 
+const verifyCustomerEmail = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    const code = String(req.body.code || '').trim();
+    if (!email || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address and 6-digit verification code.' });
+    }
+
+    const result = await verifyOtp(email, code, 'EMAIL_VERIFICATION', 'email');
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message });
+    }
+
+    const user = await User.findOne({ email, role: 'customer' });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Customer account was not found.' });
+    }
+
+    user.isEmailVerified = true;
+    await user.save();
+    await consumeOtp(result.otpId, 'EMAIL_VERIFICATION');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified successfully. You can now sign in.',
+      user: { id: user._id, email: user.email, role: user.role, isEmailVerified: true }
+    });
+  } catch (error) {
+    return respondAuthError(res, error, 'email verification', 'Email verification could not be completed.');
+  }
+};
+
+const resendCustomerEmailVerification = async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+    }
+    const user = await User.findOne({ email, role: 'customer' });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Customer account was not found.' });
+    }
+    if (user.isEmailVerified) {
+      return res.status(200).json({ success: true, message: 'This email is already verified.' });
+    }
+
+    await createAndSendOtp(email, 'EMAIL_VERIFICATION', { channel: 'email' });
+    return res.status(200).json({ success: true, message: 'A new verification code was sent.' });
+  } catch (error) {
+    return respondAuthError(res, error, 'email verification resend', 'Could not resend the verification code.');
+  }
+};
+
 /**
  * @desc    Customer Login (supports Username OR Email + Password)
  * @route   POST /api/auth/customer/login
@@ -168,6 +251,10 @@ const registerCustomer = async (req, res) => {
  */
 const loginCustomer = async (req, res) => {
   try {
+    const access = await getCustomerAccess();
+    if (access.temporaryUnavailable || !access.customerLoginEnabled) {
+      return sendCustomerAccessDisabled(res, access, 'login');
+    }
     const { identifier, username, email, password } = req.body;
     const inputId = String(identifier || username || email || '').trim();
 
@@ -213,6 +300,16 @@ const loginCustomer = async (req, res) => {
 
     const customer = await Customer.findOne({ userId: user._id }).lean();
     const token = generateToken(user);
+
+    // Send login notification email (non-blocking)
+    if (user.email) {
+      sendLoginNotification({
+        to: user.email,
+        name: user.name,
+        role: 'Customer',
+        timestamp: new Date()
+      }).catch(err => console.error('[Auth] Login notification failed:', err.message));
+    }
 
     // Welcome greeting
     const welcomeGreeting = user.name.toLowerCase().includes('kumar')
@@ -292,6 +389,17 @@ const loginStaff = async (req, res) => {
     User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
     const token = generateToken(user);
+
+    // Send login notification email (non-blocking)
+    if (user.email) {
+      sendLoginNotification({
+        to: user.email,
+        name: user.name,
+        role: 'Staff',
+        timestamp: new Date()
+      }).catch(err => console.error('[Auth] Login notification failed:', err.message));
+    }
+
     const welcomeGreeting = user.name.toLowerCase().includes('kumar')
       ? 'Welcome Kumar!'
       : `Welcome ${user.name}!`;
@@ -376,6 +484,16 @@ const loginAdmin = async (req, res) => {
     User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } }).exec().catch(() => {});
 
     const token = generateToken(user);
+
+    // Send login notification email (non-blocking)
+    if (user.email) {
+      sendLoginNotification({
+        to: user.email,
+        name: user.name,
+        role: 'Admin',
+        timestamp: new Date()
+      }).catch(err => console.error('[Auth] Login notification failed:', err.message));
+    }
 
     res.status(200).json({
       success: true,
@@ -528,6 +646,16 @@ const loginOwner = async (req, res) => {
 
     const owner = await Owner.findOne({ userId: user._id }).lean();
     const token = generateToken(user);
+
+    // Send login notification email (non-blocking)
+    if (user.email) {
+      sendLoginNotification({
+        to: user.email,
+        name: user.name,
+        role: 'Owner',
+        timestamp: new Date()
+      }).catch(err => console.error('[Auth] Login notification failed:', err.message));
+    }
 
     res.status(200).json({
       success: true,
@@ -944,5 +1072,7 @@ module.exports = {
   updateProfile,
   verifyEmailChange,
   changePassword,
+  verifyCustomerEmail,
+  resendCustomerEmailVerification,
   generateToken
 };

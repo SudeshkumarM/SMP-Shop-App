@@ -26,7 +26,9 @@ const {
   getShopDeliveryRules,
   getActiveCoupons
 } = require('../controllers/productController');
-const { protect, authorize } = require('../middleware/authMiddleware');
+const { protect, authorize, optionalAuth } = require('../middleware/authMiddleware');
+const { customerSystemMaintenance } = require('../middleware/customerSystemMiddleware');
+const { scannerFeatureEnabled } = require('../middleware/scannerFeatureMiddleware');
 
 const excelMimeTypes = {
   '.xls': ['application/vnd.ms-excel', 'application/octet-stream'],
@@ -62,16 +64,16 @@ const handleExcelUpload = (req, res, next) => {
 };
 
 // Public endpoints
-router.get('/', getProducts);
-router.get('/delivery/rules', getShopDeliveryRules);
-router.get('/offers/active', getActiveCoupons);
-router.get('/categories/list', getCategories);
+router.get('/', optionalAuth, customerSystemMaintenance, getProducts);
+router.get('/delivery/rules', optionalAuth, customerSystemMaintenance, getShopDeliveryRules);
+router.get('/offers/active', optionalAuth, customerSystemMaintenance, getActiveCoupons);
+router.get('/categories/list', optionalAuth, customerSystemMaintenance, getCategories);
 router.get('/export-excel', protect, authorize('admin', 'owner'), exportProductsExcel);
 
 // Barcode & QR Scanner Lookup (accessible to staff, admin, owner)
-router.get('/by-barcode/:barcode', protect, authorize('staff', 'admin', 'owner'), lookupProductByBarcode);
-router.get('/by-qr', protect, authorize('staff', 'admin', 'owner'), lookupByQR);
-router.get('/by-qr/:qrData', protect, authorize('staff', 'admin', 'owner'), lookupByQR);
+router.get('/by-barcode/:barcode', protect, authorize('staff', 'admin', 'owner'), scannerFeatureEnabled, lookupProductByBarcode);
+router.get('/by-qr', protect, authorize('staff', 'admin', 'owner'), scannerFeatureEnabled, lookupByQR);
+router.get('/by-qr/:qrData', protect, authorize('staff', 'admin', 'owner'), scannerFeatureEnabled, lookupByQR);
 
 // Barcode Management endpoints
 router.get('/barcodes/list', protect, authorize('admin', 'owner', 'staff'), getBarcodesList);
@@ -94,6 +96,6 @@ router.post('/', protect, authorize('admin', 'owner', 'staff'), createProduct);
 router.put('/:id', protect, authorize('admin', 'owner'), updateProduct);
 router.delete('/:id', protect, authorize('admin', 'owner'), deleteProduct);
 router.post('/import-excel', protect, authorize('admin', 'owner'), handleExcelUpload, importProductsExcel);
-router.get('/:id', getProductById);
+router.get('/:id', optionalAuth, customerSystemMaintenance, getProductById);
 
 module.exports = router;

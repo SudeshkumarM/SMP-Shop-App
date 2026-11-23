@@ -5,10 +5,14 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 const cloudinary = require('cloudinary').v2;
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 const router = express.Router();
-const useCloudinary = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+const useCloudinary = Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
 const cloudinaryConfigured = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -170,16 +174,25 @@ const runUpload = (middleware, handler) => (req, res, next) => {
 };
 
 const requireCloudinaryConfig = (req, res, next) => {
+  if (process.env.VERCEL && !cloudinaryConfigured) {
+    return res.status(503).json({
+      success: false,
+      message: 'Permanent image storage is not configured for Vercel. Configure Cloudinary environment variables.'
+    });
+  }
   if (useCloudinary && !cloudinaryConfigured) {
     return res.status(503).json({
       success: false,
       message: 'Image storage is not configured. Set the required Cloudinary environment variables.'
     });
   }
+  if (!useCloudinary && !fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
   return next();
 };
 
-router.post('/', protect, requireCloudinaryConfig, runUpload(upload.single('image'), async (req, res) => {
+router.post('/', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Please upload an image file' });
   }
@@ -193,7 +206,7 @@ router.post('/', protect, requireCloudinaryConfig, runUpload(upload.single('imag
   });
 }));
 
-router.post('/multiple', protect, requireCloudinaryConfig, runUpload(upload.array('images', 8), async (req, res) => {
+router.post('/multiple', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.array('images', 8), async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ success: false, message: 'Please select at least one image file' });
   }

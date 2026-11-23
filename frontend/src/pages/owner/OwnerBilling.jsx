@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import InvoicePrintModal from '../../components/pos/InvoicePrintModal';
@@ -10,6 +10,10 @@ const OwnerBilling = () => {
   const [search, setSearch] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [deletingInvoice, setDeletingInvoice] = useState(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletingBill, setDeletingBill] = useState(false);
+  const deletionInFlightRef = useRef(false);
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -30,6 +34,37 @@ const OwnerBilling = () => {
   useEffect(() => {
     fetchInvoices();
   }, [search]);
+
+  const handleDeleteBill = async () => {
+    if (!deletingInvoice || deletionInFlightRef.current) return;
+    const reason = deleteReason.trim();
+    if (!reason) {
+      addToast('Enter a reason before deleting this bill.', 'warning');
+      return;
+    }
+
+    deletionInFlightRef.current = true;
+    setDeletingBill(true);
+    try {
+      const res = await api.delete(`/billing/invoice/${deletingInvoice._id}`, {
+        data: { reason }
+      });
+      if (!res.data?.success) {
+        addToast(res.data?.message || 'Bill was not permanently deleted.', 'error');
+        return;
+      }
+
+      addToast(res.data.message || 'Bill permanently deleted.', 'success');
+      setDeletingInvoice(null);
+      setDeleteReason('');
+      await fetchInvoices();
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Failed to permanently delete bill.', 'error');
+    } finally {
+      deletionInFlightRef.current = false;
+      setDeletingBill(false);
+    }
+  };
 
   return (
     <div className="fade-in">
@@ -102,16 +137,30 @@ const OwnerBilling = () => {
                       </span>
                     </td>
                     <td className="text-end pe-4">
-                      <button
-                        onClick={() => {
-                          setSelectedInvoice(inv);
-                          setShowPrintModal(true);
-                        }}
-                        className="btn btn-sm btn-outline-dark"
-                        title="Print / View Invoice"
-                      >
-                        <i className="bi bi-printer"></i>
-                      </button>
+                      <div className="btn-group btn-group-sm">
+                        <button
+                          onClick={() => {
+                            setSelectedInvoice(inv);
+                            setShowPrintModal(true);
+                          }}
+                          className="btn btn-outline-dark"
+                          title="Print / View Invoice"
+                        >
+                          <i className="bi bi-printer"></i>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeletingInvoice(inv);
+                            setDeleteReason('');
+                          }}
+                          className="btn btn-outline-danger"
+                          title="Permanently delete bill"
+                          aria-label={`Permanently delete bill ${inv.invoiceNumber}`}
+                        >
+                          <i className="bi bi-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -120,6 +169,64 @@ const OwnerBilling = () => {
           </table>
         </div>
       </div>
+
+      {deletingInvoice && (
+        <div className="modal show d-block" tabIndex="-1" role="dialog" aria-modal="true" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content shadow-lg">
+              <div className="modal-header bg-danger text-white">
+                <h5 className="modal-title fw-bold">Permanently delete bill</h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  aria-label="Close"
+                  disabled={deletingBill}
+                  onClick={() => setDeletingInvoice(null)}
+                />
+              </div>
+              <div className="modal-body">
+                <p>
+                  Permanently delete invoice <strong>{deletingInvoice.invoiceNumber}</strong>?
+                </p>
+                <p className="small text-danger">
+                  This cannot be undone. Active-bill stock restoration and linked-order cancellation/refund are handled in the same database transaction.
+                </p>
+                <label htmlFor="owner-bill-delete-reason" className="form-label small fw-semibold">
+                  Reason for permanent deletion
+                </label>
+                <textarea
+                  id="owner-bill-delete-reason"
+                  className="form-control"
+                  rows="3"
+                  maxLength="500"
+                  required
+                  value={deleteReason}
+                  disabled={deletingBill}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                />
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  disabled={deletingBill}
+                  onClick={() => setDeletingInvoice(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={deletingBill || !deleteReason.trim()}
+                  onClick={handleDeleteBill}
+                >
+                  {deletingBill ? 'Deleting...' : 'Confirm Permanent Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPrintModal && selectedInvoice && (
         <InvoicePrintModal

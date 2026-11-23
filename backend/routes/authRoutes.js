@@ -14,9 +14,12 @@ const {
   getMe,
   updateProfile,
   verifyEmailChange,
-  changePassword
+  changePassword,
+  verifyCustomerEmail,
+  resendCustomerEmailVerification
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
+const { customerSystemMaintenance } = require('../middleware/customerSystemMiddleware');
 const {
   loginRateLimiter,
   registrationRateLimiter,
@@ -24,8 +27,10 @@ const {
 } = require('../middleware/rateLimiter');
 
 // Customer Auth
-router.post('/customer/register', registrationRateLimiter, registerCustomer);
-router.post('/customer/login', loginRateLimiter, loginCustomer);
+router.post('/customer/register', registrationRateLimiter, customerSystemMaintenance, registerCustomer);
+router.post('/customer/login', loginRateLimiter, customerSystemMaintenance, loginCustomer);
+router.post('/customer/verify-email', registrationRateLimiter, customerSystemMaintenance, verifyCustomerEmail);
+router.post('/customer/resend-verification', registrationRateLimiter, customerSystemMaintenance, resendCustomerEmailVerification);
 
 // Staff Auth
 router.post('/staff/login', loginRateLimiter, loginStaff);
@@ -38,15 +43,15 @@ router.post('/owner/login', loginRateLimiter, loginOwner);
 router.post('/owner/setup-initial', recoveryRateLimiter, setupInitialOwner);
 
 // Password recovery
-router.post('/forgot-password', recoveryRateLimiter, forgotPassword);
-router.post('/reset-password', recoveryRateLimiter, resetPassword);
-router.post('/forgot-password-email', recoveryRateLimiter, forgotPasswordEmail);
-router.post('/reset-password/:token', recoveryRateLimiter, resetPasswordWithToken);
+router.post('/forgot-password', recoveryRateLimiter, customerSystemMaintenance, forgotPassword);
+router.post('/reset-password', recoveryRateLimiter, customerSystemMaintenance, resetPassword);
+router.post('/forgot-password-email', recoveryRateLimiter, customerSystemMaintenance, forgotPasswordEmail);
+router.post('/reset-password/:token', recoveryRateLimiter, customerSystemMaintenance, resetPasswordWithToken);
 
 // Profile
-router.get('/me', protect, getMe);
-router.put('/profile', protect, updateProfile);
-router.post('/verify-email-change', protect, verifyEmailChange);
-router.put('/change-password', protect, changePassword);
+router.get('/me', protect, customerSystemMaintenance, getMe);
+router.put('/profile', protect, customerSystemMaintenance, updateProfile);
+router.post('/verify-email-change', protect, customerSystemMaintenance, verifyEmailChange);
+router.put('/change-password', protect, customerSystemMaintenance, changePassword);
 
 module.exports = router;

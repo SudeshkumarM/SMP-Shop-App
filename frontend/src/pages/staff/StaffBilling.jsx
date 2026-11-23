@@ -3,12 +3,64 @@ import api from '../../services/api';
 import socket from '../../services/socket';
 import { useToast } from '../../context/ToastContext';
 import InvoicePrintModal from '../../components/pos/InvoicePrintModal';
+import QRCodeVisual from '../../components/common/QRCodeVisual';
+
+const createBillingRequestId = () => (
+  window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+);
+
+const createPaymentQrPayload = (qrData, shopName, amount) => {
+  const savedPayload = String(qrData || '').trim();
+  if (!savedPayload) return '';
+
+  if (/^upi:\/\/pay(?:\?|$)/i.test(savedPayload)) {
+    try {
+      const uri = new URL(savedPayload);
+      if (!uri.searchParams.get('pn')) uri.searchParams.set('pn', shopName || 'SMP Shop');
+      uri.searchParams.set('am', Number(amount).toFixed(2));
+      uri.searchParams.set('cu', uri.searchParams.get('cu') || 'INR');
+      return uri.toString();
+    } catch {
+      return savedPayload;
+    }
+  }
+
+  if (/^[A-Z0-9._-]{2,256}@[A-Z0-9.-]{2,64}$/i.test(savedPayload)) {
+    const params = new URLSearchParams({
+      pa: savedPayload,
+      pn: shopName || 'SMP Shop',
+      am: Number(amount).toFixed(2),
+      cu: 'INR'
+    });
+    return `upi://pay?${params.toString()}`;
+  }
+
+  return savedPayload;
+};
+
+const resolvePaymentQrImageUrl = (imageUrl) => {
+  const savedImageUrl = String(imageUrl || '').trim();
+  const apiBaseUrl = api.defaults.baseURL || '';
+  if (!savedImageUrl.startsWith('/uploads/') || !/^https?:\/\//i.test(apiBaseUrl)) {
+    return savedImageUrl;
+  }
+  return new URL(savedImageUrl, new URL(apiBaseUrl).origin).toString();
+};
 
 const StaffBilling = () => {
   const { addToast } = useToast();
   const searchInputRef = useRef(null);
   const barcodeInputRef = useRef(null);
   const videoRef = useRef(null);
+  const cameraScanTimeoutRef = useRef(null);
+  const cameraScanActiveRef = useRef(false);
+  const cameraScanPausedRef = useRef(false);
+  const billingRequestIdRef = useRef(createBillingRequestId());
+  const billingSubmissionInFlightRef = useRef(false);
+  const barcodeLookupInFlightRef = useRef(false);
+  const lastBarcodeScanRef = useRef({ code: '', at: 0 });
 
   // Search & Catalog State
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,6 +73,15 @@ const StaffBilling = () => {
   const [scanningBarcode, setScanningBarcode] = useState(false);
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraMessage, setCameraMessage] = useState('');
+  const [scannerEnabled, setScannerEnabled] = useState(false);
+  const [billingSettings, setBillingSettings] = useState(null);
+  const [billingSettingsLoaded, setBillingSettingsLoaded] = useState(false);
+  const [paymentQrSettings, setPaymentQrSettings] = useState(null);
+  const [paymentQrLoading, setPaymentQrLoading] = useState(false);
+  const [paymentQrLoadError, setPaymentQrLoadError] = useState('');
+  const [paymentQrImageFailed, setPaymentQrImageFailed] = useState(false);
+  const [selectedPaymentQrId, setSelectedPaymentQrId] = useState('');
 
   // Bill Items
   const [billItems, setBillItems] = useState([]);
@@ -32,24 +93,45 @@ const StaffBilling = () => {
   const [lookupCustomer, setLookupCustomer] = useState(null);
   const [previousInvoices, setPreviousInvoices] = useState([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [consentWhatsApp, setConsentWhatsApp] = useState(true);
 
   // Delivery & Discount
-  const [deliveryCharge, setDeliveryCharge] = useState(0);
   const [hasDelivery, setHasDelivery] = useState(false);
   const [discountType, setDiscountType] = useState('flat'); // 'flat' or 'percent'
   const [discountValue, setDiscountValue] = useState(0);
 
-  // Payment Method & QR Code State
-  const [paymentMethod, setPaymentMethod] = useState('POS_CASH'); // POS_CASH, POS_UPI_QR, POS_CARD, POS_UPI
-  const [qrUtr, setQrUtr] = useState('');
-  const [merchantUpiId, setMerchantUpiId] = useState('smpelite@upi');
+  // Payment Method State
+  const [paymentMethod, setPaymentMethod] = useState('POS_CASH');
+  const [amountReceived, setAmountReceived] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
 
   // Completion State
   const [submitting, setSubmitting] = useState(false);
   const [createdInvoice, setCreatedInvoice] = useState(null);
   const [selectedPastInvoice, setSelectedPastInvoice] = useState(null);
-  const [lastDeliveryStatus, setLastDeliveryStatus] = useState(null);
+
+  const loadPaymentQrSettings = async () => {
+    setPaymentQrLoading(true);
+    setPaymentQrLoadError('');
+    try {
+      const res = await api.get('/billing/payment-qrs');
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'Payment QR settings could not be loaded.');
+      }
+      const paymentQrs = res.data.paymentQrs || [];
+      setPaymentQrSettings({ shopName: res.data.shopName || '', paymentQrs });
+      setPaymentQrImageFailed(false);
+      setSelectedPaymentQrId((currentId) => (
+        paymentQrs.some((qr) => qr._id === currentId) ? currentId : paymentQrs[0]?._id || ''
+      ));
+    } catch (err) {
+      setPaymentQrSettings(null);
+      setPaymentQrLoadError(err.response?.data?.message || err.message || 'Payment QR settings could not be loaded.');
+      addToast(err.response?.data?.message || err.message || 'Payment QR settings could not be loaded.', 'error');
+    } finally {
+      setPaymentQrLoading(false);
+    }
+  };
 
   // Audio Beep for Scans
   const playScanBeep = () => {
@@ -84,6 +166,25 @@ const StaffBilling = () => {
 
   useEffect(() => {
     fetchProducts();
+    api.get('/settings/scanner')
+      .then((res) => setScannerEnabled(res.data?.settings?.scannerActivated === true))
+      .catch((err) => {
+        setScannerEnabled(false);
+        addToast(err.response?.data?.message || 'Scanner availability could not be loaded.', 'error');
+      });
+    api.get('/billing/settings')
+      .then((res) => {
+        if (!res.data?.success || !res.data.settings) {
+          throw new Error(res.data?.message || 'Billing settings are unavailable.');
+        }
+        setBillingSettings(res.data);
+        setBillingSettingsLoaded(true);
+      })
+      .catch((err) => {
+        setBillingSettings(null);
+        setBillingSettingsLoaded(false);
+        addToast(err.response?.data?.message || err.message || 'Billing settings could not be loaded.', 'error');
+      });
 
     if (barcodeInputRef.current) {
       barcodeInputRef.current.focus();
@@ -114,7 +215,6 @@ const StaffBilling = () => {
             setLookupCustomer(res.data.customer);
             setCustomerName(res.data.customer.fullName || '');
             setCustomerEmail(res.data.customer.email || '');
-            setConsentWhatsApp(res.data.customer.consentPromotionalWhatsApp !== false);
             setPreviousInvoices(res.data.previousInvoices || []);
             addToast(`Retrieved purchase history for ${res.data.customer.fullName}!`, 'info');
           } else {
@@ -161,38 +261,38 @@ const StaffBilling = () => {
   const handleBarcodeScan = async (codeToLookup) => {
     const rawCode = (codeToLookup || barcodeInput).trim();
     if (!rawCode) return;
+    if (barcodeLookupInFlightRef.current) return;
+    const now = Date.now();
+    if (lastBarcodeScanRef.current.code === rawCode && now - lastBarcodeScanRef.current.at < 750) {
+      setBarcodeInput('');
+      return;
+    }
+    if (!scannerEnabled) {
+      addToast('Barcode scanning is disabled in Scanner Settings.', 'warning');
+      return;
+    }
 
+    lastBarcodeScanRef.current = { code: rawCode, at: now };
+    barcodeLookupInFlightRef.current = true;
     setScanningBarcode(true);
     try {
-      // 1. Direct Barcode Lookup
-      let res;
-      try {
-        res = await api.get(`/products/by-barcode/${encodeURIComponent(rawCode)}`);
-      } catch (err) {
-        // Fallback: If not found as direct barcode, check if it's a QR code payload
-        res = await api.get('/products/by-qr', { params: { qrData: rawCode } });
-      }
-
+      const res = await api.get(`/billing/lookup-product/${encodeURIComponent(rawCode)}`);
       if (res.data?.success && res.data.product) {
         playScanBeep();
         addProductToBill(res.data.product);
         setBarcodeInput('');
         addToast(`Scanned: ${res.data.product.name} (₹${res.data.product.sellingPrice})`, 'success');
       } else {
-        // Fallback: search-product endpoint
-        const searchRes = await api.get('/billing/search-product', { params: { query: rawCode } });
-        if (searchRes.data?.success && searchRes.data.products?.length > 0) {
-          playScanBeep();
-          addProductToBill(searchRes.data.products[0]);
-          setBarcodeInput('');
-        } else {
-          addToast(`No product found matching code: "${rawCode}"`, 'warning');
-        }
+        addToast('Product not found', 'warning');
       }
     } catch (err) {
-      console.error('Scan error:', err);
-      addToast(err.response?.data?.message || `Barcode ${rawCode} not recognized in inventory.`, 'error');
+      if (err.response?.status === 404) {
+        addToast('Product not found', 'warning');
+      } else {
+        addToast(err.response?.data?.message || 'Product lookup failed. Please try again.', 'error');
+      }
     } finally {
+      barcodeLookupInFlightRef.current = false;
       setScanningBarcode(false);
       if (barcodeInputRef.current) barcodeInputRef.current.focus();
     }
@@ -207,9 +307,14 @@ const StaffBilling = () => {
 
   // Add Product to Bill Cart
   const addProductToBill = (product) => {
-    const stock = product.availableQuantity ?? product.stock ?? 100;
-    if (stock <= 0) {
+    const stock = Number(product.availableQuantity ?? product.stock);
+    if (!Number.isFinite(stock) || stock <= 0) {
       addToast(`${product.name} is currently out of stock!`, 'error');
+      return;
+    }
+    const unitPrice = Number(product.sellingPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      addToast(`${product.name} has no valid saved selling price and cannot be billed.`, 'error');
       return;
     }
 
@@ -224,10 +329,9 @@ const StaffBilling = () => {
       updated[existingIdx].quantity += 1;
       setBillItems(updated);
     } else {
-      const defaultSize = product.sizes && product.sizes.length > 0 ? product.sizes[0] : 'L';
-      const defaultColor = product.colours && product.colours.length > 0 ? product.colours[0] : 'Classic Blue';
-      const unitPrice = product.sellingPrice || product.originalPrice || 500;
-      const gstPercent = product.gstPercent || 5;
+      const defaultSize = product.sizes?.[0] || '';
+      const defaultColor = product.colours?.[0] || '';
+      const gstPercent = Number.isFinite(Number(product.gstPercent)) ? Number(product.gstPercent) : 0;
 
       setBillItems([
         ...billItems,
@@ -270,76 +374,199 @@ const StaffBilling = () => {
 
   // Calculations
   const calculateTotals = () => {
-    let subtotal = 0;
-    let totalGst = 0;
-
-    billItems.forEach((item) => {
-      const itemBase = item.unitPrice * item.quantity;
-      subtotal += itemBase;
-      const itemGst = (itemBase * (item.gstPercent || 5)) / 100;
-      totalGst += itemGst;
-    });
-
+    const roundCurrency = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
+    const lines = billItems.map((item) => ({
+      baseAmount: item.unitPrice * item.quantity,
+      gstPercent: Number(item.gstPercent) || 0
+    }));
+    const subtotal = lines.reduce((sum, line) => sum + line.baseAmount, 0);
+    const roundedSubtotal = roundCurrency(subtotal);
     let overallDiscount = 0;
     if (discountType === 'percent' && discountValue > 0) {
-      overallDiscount = (subtotal * discountValue) / 100;
+      overallDiscount = subtotal * Math.min(Number(discountValue), 100) / 100;
     } else if (discountType === 'flat' && discountValue > 0) {
-      overallDiscount = Number(discountValue);
+      overallDiscount = Math.min(Number(discountValue), subtotal);
+    }
+    overallDiscount = roundCurrency(overallDiscount);
+
+    const lineSubtotalCents = lines.map((line) => Math.round(line.baseAmount * 100));
+    const subtotalCents = lineSubtotalCents.reduce((sum, cents) => sum + cents, 0);
+    const discountCents = Math.round(overallDiscount * 100);
+    const discountAllocations = lineSubtotalCents.map((lineCents, index) => {
+      const exactCents = subtotalCents > 0 ? discountCents * lineCents / subtotalCents : 0;
+      const allocatedCents = Math.min(Math.floor(exactCents), lineCents);
+      return { index, cents: allocatedCents, remainder: exactCents - allocatedCents };
+    });
+    let remainingDiscountCents = discountCents -
+      discountAllocations.reduce((sum, allocation) => sum + allocation.cents, 0);
+    const allocationPriority = [...discountAllocations]
+      .sort((left, right) => right.remainder - left.remainder);
+    for (const allocation of allocationPriority) {
+      if (remainingDiscountCents <= 0) break;
+      if (discountAllocations[allocation.index].cents < lineSubtotalCents[allocation.index]) {
+        discountAllocations[allocation.index].cents += 1;
+        remainingDiscountCents -= 1;
+      }
     }
 
-    const netSubtotal = Math.max(0, subtotal - overallDiscount);
-    const delivFee = hasDelivery ? Math.max(0, Number(deliveryCharge) || 0) : 0;
-    const grandTotal = Math.round((netSubtotal + totalGst + delivFee) * 100) / 100;
+    const gstEnabled = billingSettings?.settings?.gstEnabled !== false;
+    const totalGst = gstEnabled ? roundCurrency(lines.reduce((sum, line, index) => {
+      const taxableAmount = Math.max(0, line.baseAmount - discountAllocations[index].cents / 100);
+      return sum + taxableAmount * line.gstPercent / 100;
+    }, 0)) : 0;
+    const delivery = billingSettings?.settings?.delivery;
+    const deliveryThreshold = Number(delivery?.freeDeliveryThreshold) || 0;
+    const deliveryRate = Number(delivery?.deliveryCharge) || 0;
+    const deliveryEligible = hasDelivery && delivery?.enabled === true &&
+      !(deliveryThreshold > 0 && roundedSubtotal >= deliveryThreshold);
+    const delivFee = deliveryEligible
+      ? (delivery.chargeType === 'PERCENT' ? roundedSubtotal * deliveryRate / 100 : deliveryRate)
+      : 0;
+    const roundedDeliveryFee = roundCurrency(delivFee);
+    const roundedGst = totalGst;
+    const grandTotal = roundCurrency(roundedSubtotal - overallDiscount + roundedGst + roundedDeliveryFee);
 
     return {
-      subtotal: Math.round(subtotal * 100) / 100,
-      totalGst: Math.round(totalGst * 100) / 100,
-      cgst: Math.round((totalGst / 2) * 100) / 100,
-      sgst: Math.round((totalGst / 2) * 100) / 100,
-      overallDiscount: Math.round(overallDiscount * 100) / 100,
-      deliveryFee: delivFee,
+      subtotal: roundedSubtotal,
+      totalGst: roundedGst,
+      cgst: roundCurrency(roundedGst / 2),
+      sgst: roundCurrency(roundedGst - roundCurrency(roundedGst / 2)),
+      overallDiscount,
+      deliveryFee: roundedDeliveryFee,
       grandTotal
     };
   };
 
   const totals = calculateTotals();
+  const parsedCashReceived = Number(amountReceived);
+  const hasValidCashEntry = amountReceived.trim() !== '' && Number.isFinite(parsedCashReceived);
+  const cashReceivedForDisplay = hasValidCashEntry ? Math.max(0, parsedCashReceived) : 0;
+  const cashShortfall = Math.max(0, totals.grandTotal - cashReceivedForDisplay);
+  const cashChangeToReturn = Math.max(0, cashReceivedForDisplay - totals.grandTotal);
+  const selectedPaymentQr = paymentQrSettings?.paymentQrs?.find(
+    (qr) => qr._id === selectedPaymentQrId
+  );
+  const paymentQrPayload = selectedPaymentQr
+    ? createPaymentQrPayload(
+      selectedPaymentQr.qrData,
+      paymentQrSettings?.shopName,
+      totals.grandTotal
+    )
+    : '';
+  const paymentQrImageUrl = resolvePaymentQrImageUrl(selectedPaymentQr?.imageUrl);
 
-  // Dynamic UPI Payment Intent String
-  const upiIntentUri = `upi://pay?pa=${encodeURIComponent(merchantUpiId)}&pn=SMP%20Store&am=${totals.grandTotal.toFixed(2)}&cu=INR&tn=SMP%20Bill`;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiIntentUri)}&color=071426&bgcolor=ffffff`;
-
-  // Camera Scanner Functions
+  // Camera barcode and QR scanner
   const startCamera = async () => {
     setShowCameraModal(true);
+    setCameraMessage('');
+    if (!scannerEnabled) {
+      setCameraMessage('Scanning is disabled in Scanner Settings.');
+      return;
+    }
+
+    const BarcodeDetectorApi = window.BarcodeDetector;
+    if (!BarcodeDetectorApi) {
+      setCameraMessage('This browser does not support camera barcode decoding. Use a USB/Bluetooth scanner or enter the code manually.');
+      return;
+    }
+
+    let stream;
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-          setCameraActive(true);
-        }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraMessage('Camera access is not available in this browser or page context.');
+        return;
       }
+
+      const supported = await BarcodeDetectorApi.getSupportedFormats();
+      const desiredFormats = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'];
+      const formats = desiredFormats.filter((format) => supported.includes(format));
+      if (formats.length === 0) {
+        setCameraMessage('This camera does not support a compatible barcode format. Use a USB/Bluetooth scanner or manual entry.');
+        return;
+      }
+
+      const detector = new BarcodeDetectorApi({ formats });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      });
+      if (!videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        setCameraMessage('Camera preview could not be started.');
+        return;
+      }
+
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      setCameraActive(true);
+      cameraScanActiveRef.current = true;
+
+      const scanFrame = async () => {
+        if (!cameraScanActiveRef.current) return;
+        const video = videoRef.current;
+        if (video?.readyState >= 2 && !cameraScanPausedRef.current) {
+          try {
+            const detected = await detector.detect(video);
+            const value = detected.find((item) => item.rawValue)?.rawValue;
+            if (value) {
+              cameraScanPausedRef.current = true;
+              handleBarcodeScan(value);
+              window.setTimeout(() => {
+                cameraScanPausedRef.current = false;
+              }, 1200);
+            }
+          } catch (error) {
+            console.warn('Camera barcode decoding failed:', error);
+          }
+        }
+        cameraScanTimeoutRef.current = window.setTimeout(scanFrame, 250);
+      };
+      scanFrame();
     } catch (err) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setCameraActive(false);
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+        setCameraMessage('Camera permission was denied or blocked. Allow camera access on HTTPS or localhost, then try again.');
+      } else if (err.name === 'NotFoundError') {
+        setCameraMessage('No camera was found. Use a USB/Bluetooth scanner or enter the code manually.');
+      } else {
+        setCameraMessage('Camera access failed. Check browser permissions or use a handheld scanner/manual entry.');
+      }
       console.warn('Camera stream warning:', err);
     }
   };
 
   const stopCamera = () => {
+    cameraScanActiveRef.current = false;
+    cameraScanPausedRef.current = false;
+    if (cameraScanTimeoutRef.current) {
+      window.clearTimeout(cameraScanTimeoutRef.current);
+      cameraScanTimeoutRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const tracks = videoRef.current.srcObject.getTracks();
       tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
     }
     setCameraActive(false);
     setShowCameraModal(false);
   };
 
+  useEffect(() => () => {
+    cameraScanActiveRef.current = false;
+    if (cameraScanTimeoutRef.current) window.clearTimeout(cameraScanTimeoutRef.current);
+    videoRef.current?.srcObject?.getTracks().forEach((track) => track.stop());
+  }, []);
+
   // Complete Billing
   const handleCompleteBilling = async () => {
+    if (billingSubmissionInFlightRef.current) return;
     if (billItems.length === 0) {
       addToast('Bill is empty. Please select or scan products first.', 'warning');
+      return;
+    }
+    if (!billingSettingsLoaded) {
+      addToast('Billing settings are not available. Reload the page before completing a bill.', 'error');
       return;
     }
 
@@ -353,32 +580,52 @@ const StaffBilling = () => {
       return;
     }
 
-    if (paymentMethod === 'POS_UPI_QR') {
-      if (!qrUtr || qrUtr.trim().length < 6) {
-        addToast('Payment verification required: Enter the 12-digit UPI UTR number from customer payment.', 'warning');
+    if (paymentMethod === 'POS_CASH') {
+      const receivedAmount = Number(amountReceived);
+      if (!amountReceived.trim() || !Number.isFinite(receivedAmount) || receivedAmount < totals.grandTotal) {
+        addToast('Enter a valid amount received that covers the total payable.', 'warning');
+        return;
+      }
+    } else {
+      if (!paymentConfirmed) {
+        addToast('Confirm that the payment was received before completing the bill.', 'warning');
+        return;
+      }
+      if (['POS_UPI', 'POS_UPI_QR'].includes(paymentMethod) && !paymentReference.trim()) {
+        addToast('Enter the UPI transaction reference before completing the bill.', 'warning');
+        return;
+      }
+      if (paymentMethod === 'POS_UPI_QR' && !paymentQrSettings?.paymentQrs?.some(
+        (qr) => qr._id === selectedPaymentQrId
+      )) {
+        addToast('UPI QR is not configured. Please contact the Owner.', 'warning');
         return;
       }
     }
 
+    billingSubmissionInFlightRef.current = true;
     setSubmitting(true);
     try {
       const res = await api.post('/billing/create-bill', {
+        requestId: billingRequestIdRef.current,
         items: billItems,
         discountType,
         discountValue,
-        deliveryCharge: totals.deliveryFee,
+        hasDelivery,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         customerEmail: customerEmail.trim(),
-        consentPromotionalWhatsApp: consentWhatsApp,
         paymentMethod,
-        transactionRef: paymentMethod === 'POS_UPI_QR' ? qrUtr.trim() : undefined,
-        paymentStatus: 'PAID'
+        expectedGrandTotal: totals.grandTotal,
+        amountReceived: paymentMethod === 'POS_CASH' ? Number(amountReceived) : undefined,
+        paymentConfirmed: paymentMethod !== 'POS_CASH' && paymentConfirmed,
+        paymentReference: paymentReference.trim() || undefined,
+        paymentQrId: paymentMethod === 'POS_UPI_QR' ? selectedPaymentQrId : undefined
       });
 
-      if (res.data.success) {
+      if (res.data?.success && res.data?.invoice?._id) {
+        billingRequestIdRef.current = createBillingRequestId();
         const delStatus = res.data.deliveryStatus || 'Sent';
-        setLastDeliveryStatus(delStatus);
         addToast(`Invoice generated successfully! Bill: ${res.data.invoice?.invoiceNumber}`, 'success');
 
         const invoiceWithStatus = {
@@ -396,13 +643,17 @@ const StaffBilling = () => {
         setPreviousInvoices([]);
         setDiscountValue(0);
         setHasDelivery(false);
-        setDeliveryCharge(0);
-        setQrUtr('');
+        setAmountReceived('');
+        setPaymentReference('');
         setPaymentMethod('POS_CASH');
+        setPaymentConfirmed(false);
+      } else {
+        addToast('Bill was not completed: the server did not confirm a saved invoice.', 'error');
       }
     } catch (err) {
-      addToast(err.response?.data?.message || 'Billing submission failed', 'error');
+      addToast(err.response?.data?.message || 'Billing submission failed. No success was recorded.', 'error');
     } finally {
+      billingSubmissionInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -416,7 +667,9 @@ const StaffBilling = () => {
             <label className="form-label small fw-bold text-uppercase text-dark mb-1 d-flex align-items-center gap-1">
               <i className="bi bi-upc-scan text-primary fs-5"></i>
               Hardware USB Barcode & QR Scanner
-              <span className="badge bg-success ms-2 font-monospace">READY</span>
+              <span className={`badge ${scannerEnabled ? 'bg-success' : 'bg-secondary'} ms-2 font-monospace`}>
+                {scannerEnabled ? 'ON' : 'OFF'}
+              </span>
             </label>
             <div className="input-group">
               <span className="input-group-text bg-primary text-white border-primary">
@@ -426,31 +679,26 @@ const StaffBilling = () => {
                 ref={barcodeInputRef}
                 type="text"
                 className="form-control pos-search-input font-monospace"
-                placeholder="Scan barcode with USB scanner (e.g. 8901234567890) & Enter..."
+                placeholder="Scan or enter a saved product barcode / SKU, then press Enter..."
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
                 onKeyDown={handleBarcodeKeyDown}
+                disabled={!scannerEnabled}
               />
               <button
                 type="button"
                 className="btn btn-teal fw-bold"
                 onClick={() => handleBarcodeScan()}
-                disabled={scanningBarcode}
+                disabled={scanningBarcode || !scannerEnabled}
               >
                 {scanningBarcode ? 'Scanning...' : 'Scan / Add'}
               </button>
             </div>
-            <div className="d-flex justify-content-between mt-1">
-              <small className="text-muted">Instant USB wedge auto-enters on scan</small>
-              <button
-                type="button"
-                className="btn btn-link btn-sm text-primary p-0 text-decoration-none fw-bold"
-                onClick={() => handleBarcodeScan('8901234567890')}
-              >
-                <i className="bi bi-lightning-fill text-warning me-1"></i>
-                Scan Initial Shirt (8901234567890 - ₹500)
-              </button>
-            </div>
+            <small className="text-muted d-block mt-1">
+              {scannerEnabled
+                ? 'Scan a product label or enter its saved barcode/SKU manually.'
+                : 'Scanner access is OFF. An Admin or Owner can re-enable it in Scanner Settings.'}
+            </small>
           </div>
 
           <div className="col-lg-6 col-md-5 d-flex flex-wrap align-items-center justify-content-md-end gap-2 mt-2 mt-md-0">
@@ -458,6 +706,7 @@ const StaffBilling = () => {
               type="button"
               className="btn btn-teal fw-bold"
               onClick={startCamera}
+              disabled={!scannerEnabled}
             >
               <i className="bi bi-camera-fill me-1"></i> Scan via Camera
             </button>
@@ -746,10 +995,14 @@ const StaffBilling = () => {
               <input
                 type="number"
                 min="0"
+                max={discountType === 'percent' ? 100 : totals.subtotal}
                 className="form-control form-control-sm text-end fw-bold font-monospace"
                 placeholder={discountType === 'flat' ? '₹ Discount' : '% Discount'}
                 value={discountValue}
-                onChange={(e) => setDiscountValue(Number(e.target.value))}
+                onChange={(e) => {
+                  const value = Math.max(0, Number(e.target.value) || 0);
+                  setDiscountValue(Math.min(value, discountType === 'percent' ? 100 : totals.subtotal));
+                }}
               />
             </div>
 
@@ -761,39 +1014,45 @@ const StaffBilling = () => {
             )}
 
             <div className="d-flex justify-content-between py-1 small">
-              <span className="text-muted">CGST (2.5%):</span>
+              <span className="text-muted">CGST:</span>
               <span className="text-dark font-monospace">₹{totals.cgst.toFixed(2)}</span>
             </div>
             <div className="d-flex justify-content-between py-1 small">
-              <span className="text-muted">SGST (2.5%):</span>
+              <span className="text-muted">SGST:</span>
               <span className="text-dark font-monospace">₹{totals.sgst.toFixed(2)}</span>
             </div>
 
             {/* Delivery Toggle */}
-            <div className="form-check form-switch my-2">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                checked={hasDelivery}
-                onChange={(e) => setHasDelivery(e.target.checked)}
-                id="deliveryToggle"
-              />
-              <label className="form-check-label small text-dark" htmlFor="deliveryToggle">
-                Add Home Delivery Charge
-              </label>
-            </div>
-
-            {hasDelivery && (
-              <div className="input-group input-group-sm mb-2">
-                <span className="input-group-text">₹ Delivery</span>
-                <input
-                  type="number"
-                  min="0"
-                  className="form-control text-end font-monospace"
-                  value={deliveryCharge}
-                  onChange={(e) => setDeliveryCharge(Number(e.target.value))}
-                />
-              </div>
+            {billingSettings?.settings?.delivery?.enabled && (
+              <>
+                <div className="form-check form-switch my-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={hasDelivery}
+                    onChange={(e) => setHasDelivery(e.target.checked)}
+                    id="deliveryToggle"
+                  />
+                  <label className="form-check-label small text-dark" htmlFor="deliveryToggle">
+                    Add Home Delivery
+                  </label>
+                  {billingSettings.settings.delivery.description && (
+                    <div className="text-muted small">{billingSettings.settings.delivery.description}</div>
+                  )}
+                </div>
+                {hasDelivery && (
+                  <div className="d-flex justify-content-between small mb-2">
+                    <span className="text-muted">
+                      Delivery
+                      {billingSettings.settings.delivery.freeDeliveryThreshold > 0 &&
+                        totals.subtotal >= billingSettings.settings.delivery.freeDeliveryThreshold
+                        ? ' (free)'
+                        : ''}
+                    </span>
+                    <span className="font-monospace">₹{totals.deliveryFee.toFixed(2)}</span>
+                  </div>
+                )}
+              </>
             )}
 
             <hr className="my-2" />
@@ -813,7 +1072,11 @@ const StaffBilling = () => {
                 <div className="col-6">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('POS_CASH')}
+                    onClick={() => {
+                      setPaymentMethod('POS_CASH');
+                      setPaymentConfirmed(false);
+                      setPaymentReference('');
+                    }}
                     className={`btn w-100 py-2 ${paymentMethod === 'POS_CASH' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
                     <i className="bi bi-cash-stack me-1"></i> Cash
@@ -822,7 +1085,12 @@ const StaffBilling = () => {
                 <div className="col-6">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('POS_UPI_QR')}
+                    onClick={() => {
+                      setPaymentMethod('POS_UPI_QR');
+                      setPaymentConfirmed(false);
+                      setPaymentReference('');
+                      loadPaymentQrSettings();
+                    }}
                     className={`btn w-100 py-2 ${paymentMethod === 'POS_UPI_QR' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
                     <i className="bi bi-qr-code-scan me-1"></i> UPI QR
@@ -831,7 +1099,11 @@ const StaffBilling = () => {
                 <div className="col-6">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('POS_CARD')}
+                    onClick={() => {
+                      setPaymentMethod('POS_CARD');
+                      setPaymentConfirmed(false);
+                      setPaymentReference('');
+                    }}
                     className={`btn w-100 py-2 ${paymentMethod === 'POS_CARD' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
                     <i className="bi bi-credit-card me-1"></i> Card
@@ -840,7 +1112,11 @@ const StaffBilling = () => {
                 <div className="col-6">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('POS_UPI')}
+                    onClick={() => {
+                      setPaymentMethod('POS_UPI');
+                      setPaymentConfirmed(false);
+                      setPaymentReference('');
+                    }}
                     className={`btn w-100 py-2 ${paymentMethod === 'POS_UPI' ? 'btn-primary' : 'btn-outline-secondary'}`}
                   >
                     <i className="bi bi-phone me-1"></i> Manual UPI
@@ -848,47 +1124,179 @@ const StaffBilling = () => {
                 </div>
               </div>
 
-              {/* Dynamic QR Code Box for UPI */}
               {paymentMethod === 'POS_UPI_QR' && (
-                <div className="p-3 bg-light rounded-3 text-center mb-3 border border-primary fade-in">
-                  <div className="d-flex align-items-center justify-content-between mb-2">
-                    <span className="badge bg-primary">Dynamic UPI QR</span>
-                    <span className="fw-bold fs-6 text-dark font-monospace">₹{totals.grandTotal.toFixed(2)}</span>
+                <>
+                  <div className="d-flex justify-content-end mb-2">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-primary"
+                      onClick={loadPaymentQrSettings}
+                      disabled={paymentQrLoading}
+                    >
+                      <i className={`bi ${paymentQrLoading ? 'bi-arrow-repeat' : 'bi-arrow-clockwise'} me-1`}></i>
+                      Refresh Owner QR
+                    </button>
                   </div>
-
-                  <div className="upi-qr-card my-2 p-2 bg-white rounded d-inline-block">
-                    <img
-                      src={qrCodeUrl}
-                      alt="UPI QR Code"
-                      style={{ width: '160px', height: '160px' }}
-                    />
+                  <div className="border rounded-3 bg-light p-3 mb-3 text-center">
+                    {paymentQrLoading ? (
+                      <div className="text-muted small">
+                        <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                        Loading Owner payment QR...
+                      </div>
+                    ) : paymentQrLoadError ? (
+                      <div className="alert alert-danger small mb-0">{paymentQrLoadError}</div>
+                    ) : !selectedPaymentQr ? (
+                      <div className="alert alert-warning small mb-0">
+                        UPI QR is not configured. Please contact the Owner.
+                      </div>
+                    ) : (
+                      <>
+                        {paymentQrSettings.paymentQrs.length > 1 && (
+                          <select
+                            className="form-select form-select-sm mb-3"
+                            aria-label="Select Owner-configured payment QR"
+                            value={selectedPaymentQrId}
+                            onChange={(event) => {
+                              setSelectedPaymentQrId(event.target.value);
+                              setPaymentQrImageFailed(false);
+                            }}
+                          >
+                            {paymentQrSettings.paymentQrs.map((qr) => (
+                              <option key={qr._id} value={qr._id}>
+                                {qr.title || qr.targetName || 'Owner payment QR'}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <div className="fw-bold text-dark mb-1">
+                          {paymentQrSettings.shopName || 'SMP Shop'}
+                        </div>
+                        <div className="small text-muted mb-2">
+                          Amount to pay: <strong>₹{totals.grandTotal.toFixed(2)}</strong>
+                        </div>
+                        {paymentQrImageUrl && paymentQrImageFailed ? (
+                          <div className="alert alert-warning small mb-0">
+                            The Owner-configured QR image could not be loaded. Please contact the Owner.
+                          </div>
+                        ) : paymentQrImageUrl ? (
+                          <img
+                            src={paymentQrImageUrl}
+                            alt={`${selectedPaymentQr.title || 'Owner-configured'} UPI payment QR`}
+                            className="bg-white border rounded p-2"
+                            style={{ width: 220, height: 220, objectFit: 'contain' }}
+                            onError={() => setPaymentQrImageFailed(true)}
+                          />
+                        ) : paymentQrPayload ? (
+                          <QRCodeVisual value={paymentQrPayload} size={220} />
+                        ) : (
+                          <div className="alert alert-warning small mb-0">
+                            UPI QR is not configured. Please contact the Owner.
+                          </div>
+                        )}
+                        {selectedPaymentQr.title && (
+                          <div className="small text-muted mt-2">{selectedPaymentQr.title}</div>
+                        )}
+                      </>
+                    )}
                   </div>
+                </>
+              )}
 
-                  <div className="small mb-2 text-dark">
-                    VPA: <strong className="font-monospace text-primary">{merchantUpiId}</strong>
+              {paymentMethod === 'POS_CASH' && (
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between align-items-center rounded border bg-light p-3 mb-3">
+                    <span className="fw-bold text-dark">Bill Amount</span>
+                    <strong className="fs-4 text-primary font-monospace">₹{totals.grandTotal.toFixed(2)}</strong>
                   </div>
-
-                  <div className="text-start">
-                    <label className="form-label small fw-bold text-uppercase text-dark">
-                      UPI UTR / Reference No. <span className="text-danger">*</span>
-                    </label>
+                  <label htmlFor="cash-received" className="form-label small fw-bold text-uppercase text-muted">
+                    Cash Received
+                  </label>
+                  <div className="input-group">
+                    <span className="input-group-text">₹</span>
                     <input
-                      type="text"
-                      maxLength="16"
-                      placeholder="12-digit UTR from customer screen"
-                      className="form-control form-control-sm font-monospace"
-                      value={qrUtr}
-                      onChange={(e) => setQrUtr(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                      id="cash-received"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      className="form-control text-end font-monospace"
+                      value={amountReceived}
+                      onChange={(event) => setAmountReceived(event.target.value)}
+                      aria-describedby="cash-payment-balance"
                     />
+                  </div>
+                  <div
+                    id="cash-payment-balance"
+                    className={`d-flex justify-content-between align-items-center rounded border p-3 mt-2 ${
+                      cashShortfall > 0 ? 'bg-warning-subtle border-warning' : 'bg-success-subtle border-success'
+                    }`}
+                    aria-live="polite"
+                  >
+                    <span className="fw-bold text-dark">
+                      {cashShortfall > 0 ? 'Remaining to Collect' : 'Change to Return'}
+                    </span>
+                    <strong className={`fs-4 font-monospace ${cashShortfall > 0 ? 'text-danger' : 'text-success'}`}>
+                      ₹{cashShortfall > 0 ? cashShortfall.toFixed(2) : cashChangeToReturn.toFixed(2)}
+                    </strong>
                   </div>
                 </div>
+              )}
+              {paymentMethod !== 'POS_CASH' && (
+                <>
+                  <div className="small text-muted mb-2">
+                    Amount to collect: <strong>₹{totals.grandTotal.toFixed(2)}</strong>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label small fw-bold text-uppercase text-muted" htmlFor="payment-reference">
+                      {paymentMethod === 'POS_CARD' ? 'Transaction / Authorization Reference (optional)' : 'UPI Transaction Reference'}
+                    </label>
+                    <input
+                      id="payment-reference"
+                      type="text"
+                      className="form-control font-monospace"
+                      maxLength={128}
+                      value={paymentReference}
+                      onChange={(event) => setPaymentReference(event.target.value)}
+                      placeholder={paymentMethod === 'POS_CARD' ? 'Enter terminal reference if available' : 'Enter the UPI transaction reference'}
+                    />
+                  </div>
+                  <div className="form-check mb-3">
+                  <input
+                    id="payment-confirmation"
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={paymentConfirmed}
+                    onChange={(event) => setPaymentConfirmed(event.target.checked)}
+                  />
+                  <label className="form-check-label small" htmlFor="payment-confirmation">
+                    I verified that the full payment was received. Displaying or scanning a QR code alone is not payment confirmation.
+                  </label>
+                </div>
+                </>
               )}
             </div>
 
             {/* Complete Billing Button */}
             <button
               type="button"
-              disabled={submitting || billItems.length === 0 || (paymentMethod === 'POS_UPI_QR' && qrUtr.trim().length < 6)}
+              disabled={
+                submitting ||
+                !billingSettingsLoaded ||
+                billItems.length === 0 ||
+                (paymentMethod === 'POS_CASH' && (
+                  !amountReceived.trim() ||
+                  !Number.isFinite(Number(amountReceived)) ||
+                  Number(amountReceived) < totals.grandTotal
+                )) ||
+                (paymentMethod !== 'POS_CASH' && !paymentConfirmed) ||
+                (['POS_UPI', 'POS_UPI_QR'].includes(paymentMethod) && !paymentReference.trim()) ||
+                (paymentMethod === 'POS_UPI_QR' && (
+                  paymentQrLoading ||
+                  !selectedPaymentQr ||
+                  !paymentQrSettings?.paymentQrs?.some((qr) => qr._id === selectedPaymentQrId)
+                ))
+              }
               onClick={handleCompleteBilling}
               className="btn btn-teal btn-lg w-100 rounded-pill fw-bold shadow mt-3 py-3 text-uppercase"
             >
@@ -900,7 +1308,7 @@ const StaffBilling = () => {
               ) : (
                 <>
                   <i className="bi bi-check2-circle me-2 fs-5"></i>
-                  Complete Bill & Print
+                  {paymentMethod === 'POS_CASH' ? 'Complete Payment & Print' : 'Complete Bill & Print'}
                 </>
               )}
             </button>
@@ -955,30 +1363,8 @@ const StaffBilling = () => {
                   ></div>
                 </div>
 
-                <div className="p-3 bg-light rounded-3 text-start mb-3 border">
-                  <small className="text-muted d-block fw-bold mb-1">Instant Scan Simulator:</small>
-                  <div className="d-flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        handleBarcodeScan('8901234567890');
-                        stopCamera();
-                      }}
-                    >
-                      <i className="bi bi-upc me-1"></i> Scan Shirt Barcode (8901234567890)
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-purple btn-sm"
-                      onClick={() => {
-                        handleBarcodeScan('smp:product:SMP-SHIRT-001');
-                        stopCamera();
-                      }}
-                    >
-                      <i className="bi bi-qr-code me-1"></i> Scan Shirt QR Code
-                    </button>
-                  </div>
+                <div className={`alert ${cameraMessage ? 'alert-warning' : 'alert-info'} small mb-3`}>
+                  {cameraMessage || 'Hold a saved product barcode or QR code inside the reticle. Scanning starts automatically when the camera detects a code.'}
                 </div>
               </div>
 

@@ -84,7 +84,7 @@ test('rejects non-Atlas hosts and database names other than test', async () => {
 
 test('shares the cached connection and passes the configured Atlas URI unchanged', async () => {
   const uri =
-    'mongodb+srv://user:password@cluster.example.mongodb.net/test?retryWrites=true&w=majority';
+    'mongodb+srv://user:password@smp-shop-cluster.mongodb.net/test?retryWrites=true&w=majority';
 
   await withMongoConfig(uri, async () => {
     let receivedUri;

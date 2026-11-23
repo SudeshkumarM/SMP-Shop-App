@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const invoiceSchema = new mongoose.Schema({
+  requestId: {
+    type: String,
+    trim: true,
+    maxlength: 128,
+    default: undefined
+  },
   invoiceNumber: {
     type: String,
     required: true,
@@ -42,6 +48,16 @@ const invoiceSchema = new mongoose.Schema({
     phone: { type: String, default: '' },
     email: { type: String, default: '' },
     gstNumber: { type: String, default: '' }
+  },
+  branchInfo: {
+    name: { type: String, default: '' },
+    address: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    email: { type: String, default: '' }
+  },
+  staffInfo: {
+    fullName: { type: String, default: '' },
+    staffId: { type: String, default: '' }
   },
   customerInfo: {
     name: { type: String, required: true },
@@ -144,6 +160,7 @@ const invoiceSchema = new mongoose.Schema({
 });
 
 invoiceSchema.index({ shopId: 1, invoiceNumber: 1 });
+invoiceSchema.index({ requestId: 1 }, { unique: true, sparse: true });
 invoiceSchema.index({ createdAt: -1 });
 invoiceSchema.index({ 'customerInfo.phone': 1 });
 invoiceSchema.index({ shopId: 1, branchId: 1, createdAt: -1 });

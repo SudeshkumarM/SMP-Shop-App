@@ -29,7 +29,7 @@ const categorySchema = new mongoose.Schema({
   },
   image: {
     type: String,
-    default: ''
+    default: '/images/category-default.svg'
   },
   parentCategory: {
     type: mongoose.Schema.Types.ObjectId,

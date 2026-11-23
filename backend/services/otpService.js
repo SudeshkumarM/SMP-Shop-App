@@ -51,7 +51,7 @@ const createAndSendOtp = async (
   if (!normalizedIdentifier) {
     throw new OtpServiceError(`A valid ${channel === 'email' ? 'email address' : 'mobile number'} is required.`);
   }
-  if (purpose !== 'FORGOT_PASSWORD') {
+  if (!['FORGOT_PASSWORD', 'EMAIL_VERIFICATION'].includes(purpose)) {
     throw new OtpServiceError('Unsupported verification request.');
   }
   if (!['sms', 'email'].includes(channel)) {
@@ -155,7 +155,7 @@ const createAndSendOtp = async (
 };
 
 const verifyOtp = async (identifier, otp, purpose, channel) => {
-  if (purpose !== 'FORGOT_PASSWORD') {
+  if (!['FORGOT_PASSWORD', 'EMAIL_VERIFICATION'].includes(purpose)) {
     throw new OtpServiceError('Unsupported verification request.');
   }
   const normalizedIdentifier = normalizeIdentifier(identifier, channel);
@@ -192,7 +192,7 @@ const verifyOtp = async (identifier, otp, purpose, channel) => {
 };
 
 const consumeOtp = async (otpId, purpose) => {
-  if (purpose !== 'FORGOT_PASSWORD') {
+  if (!['FORGOT_PASSWORD', 'EMAIL_VERIFICATION'].includes(purpose)) {
     throw new OtpServiceError('Unsupported verification request.');
   }
 

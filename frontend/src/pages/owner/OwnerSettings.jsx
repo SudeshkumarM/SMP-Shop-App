@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import UserAccessControl from '../../components/common/UserAccessControl';
 
 const OwnerSettings = () => {
   const { user, loadUser } = useAuth();
@@ -175,6 +176,9 @@ const OwnerSettings = () => {
       )}
 
       <div className="row g-4">
+        <div className="col-12">
+          <UserAccessControl />
+        </div>
         {/* Owner Profile & Registered Email */}
         <div className="col-lg-6">
           <div className="smp-card p-4 shadow-sm mb-4" style={{ backgroundColor: '#1E293B', border: '1px solid #334155' }}>

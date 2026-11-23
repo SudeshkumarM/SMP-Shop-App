@@ -40,6 +40,11 @@ const validateMongoUri = (uri) => {
       'MONGO_URI must point to a MongoDB Atlas cluster.'
     );
   }
+  if (!parsed.hostname.toLowerCase().startsWith('smp-shop-cluster.')) {
+    throw new Error(
+      'MONGO_URI must point to the SMP-Shop-Cluster Atlas cluster.'
+    );
+  }
 
   let databaseName;
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import socket from '../../services/socket';
 import { useToast } from '../../context/ToastContext';
@@ -46,12 +46,22 @@ const CompleteBillHistory = ({ role = 'admin' }) => {
   // Modals
   const [viewInvoice, setViewInvoice] = useState(null);
   const [staffList, setStaffList] = useState([]);
+  const [editingInvoice, setEditingInvoice] = useState(null);
+  const [editItems, setEditItems] = useState([]);
+  const [editReason, setEditReason] = useState('Invoice correction');
+  const [savingBill, setSavingBill] = useState(false);
+  const [deletingInvoice, setDeletingInvoice] = useState(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletingBill, setDeletingBill] = useState(false);
+  const editInFlightRef = useRef(false);
+  const deletionInFlightRef = useRef(false);
+  const canManageBills = role === 'admin' || role === 'owner';
 
   // Fetch staff list for filter dropdown
   useEffect(() => {
     const fetchStaff = async () => {
       try {
-        const res = await api.get('/staff');
+        const res = await api.get('/admin/staff');
         if (res.data?.success) {
           setStaffList(res.data.staff || []);
         }
@@ -98,6 +108,80 @@ const CompleteBillHistory = ({ role = 'admin' }) => {
       addToast(err.response?.data?.message || 'Error fetching complete bill history', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenEdit = (invoice) => {
+    setEditingInvoice(invoice);
+    setEditItems((invoice.items || []).map((item) => ({ ...item })));
+    setEditReason('Invoice correction');
+  };
+
+  const handleSaveEdit = async (event) => {
+    event.preventDefault();
+    if (!editingInvoice || editInFlightRef.current) return;
+    const reason = editReason.trim();
+    if (!reason) {
+      addToast('Enter a reason before editing this bill.', 'warning');
+      return;
+    }
+
+    editInFlightRef.current = true;
+    setSavingBill(true);
+    try {
+      const res = await api.put(`/billing/invoice/${editingInvoice._id}`, {
+        items: editItems,
+        reason
+      });
+      if (!res.data?.success) {
+        addToast(res.data?.message || 'Bill was not updated.', 'error');
+        return;
+      }
+
+      addToast(res.data.message || 'Bill updated successfully.', 'success');
+      setEditingInvoice(null);
+      fetchHistory(currentPage);
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Failed to update bill.', 'error');
+    } finally {
+      editInFlightRef.current = false;
+      setSavingBill(false);
+    }
+  };
+
+  const handleDeleteBill = async () => {
+    if (!deletingInvoice || deletionInFlightRef.current) return;
+    const reason = deleteReason.trim();
+    if (!reason) {
+      addToast('Enter a reason before deleting this bill.', 'warning');
+      return;
+    }
+
+    deletionInFlightRef.current = true;
+    setDeletingBill(true);
+    try {
+      const res = await api.delete(`/billing/invoice/${deletingInvoice._id}`, {
+        data: { reason }
+      });
+      if (!res.data?.success) {
+        addToast(res.data?.message || 'Bill was not deleted.', 'error');
+        return;
+      }
+
+      addToast(res.data.message || 'Bill permanently deleted.', 'success');
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(deletingInvoice._id);
+        return next;
+      });
+      setDeletingInvoice(null);
+      setDeleteReason('');
+      fetchHistory(currentPage);
+    } catch (err) {
+      addToast(err.response?.data?.message || 'Failed to delete bill.', 'error');
+    } finally {
+      deletionInFlightRef.current = false;
+      setDeletingBill(false);
     }
   };
 
@@ -843,6 +927,29 @@ const CompleteBillHistory = ({ role = 'admin' }) => {
                           >
                             <i className="bi bi-eye-fill"></i> View
                           </button>
+                          {canManageBills && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(inv)}
+                                className="btn btn-outline-warning btn-sm"
+                                title="Edit bill"
+                              >
+                                <i className="bi bi-pencil-square"></i> Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDeletingInvoice(inv);
+                                  setDeleteReason('');
+                                }}
+                                className="btn btn-outline-danger btn-sm"
+                                title="Permanently delete bill"
+                              >
+                                <i className="bi bi-trash3"></i> Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -883,6 +990,163 @@ const CompleteBillHistory = ({ role = 'admin' }) => {
           invoice={viewInvoice}
           onClose={() => setViewInvoice(null)}
         />
+      )}
+
+      {editingInvoice && canManageBills && (
+        <div className="modal show d-block" tabIndex="-1" role="dialog" aria-modal="true" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content shadow-lg">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-white">
+                  Edit bill: {editingInvoice.invoiceNumber}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  aria-label="Close"
+                  disabled={savingBill}
+                  onClick={() => setEditingInvoice(null)}
+                />
+              </div>
+              <form onSubmit={handleSaveEdit}>
+                <div className="modal-body">
+                  <p className="small text-muted">
+                    {role === 'owner'
+                      ? 'Owner access applies across shops.'
+                      : 'Admin access is limited to the assigned shop.'}
+                    {' '}Changes adjust stock and are retained in the invoice audit history.
+                  </p>
+                  <div className="table-responsive mb-3">
+                    <table className="table table-sm align-middle">
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Unit Price</th>
+                          <th>Quantity</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {editItems.map((item, index) => (
+                          <tr key={`${item.productId || item.sku || item.productName}-${index}`}>
+                            <td>{item.productName}</td>
+                            <td>₹{Number(item.unitPrice || 0).toFixed(2)}</td>
+                            <td>
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                className="form-control form-control-sm"
+                                value={item.quantity}
+                                disabled={savingBill}
+                                onChange={(event) => {
+                                  const quantity = Math.max(1, Number.parseInt(event.target.value, 10) || 1);
+                                  setEditItems((current) => current.map((entry, entryIndex) => (
+                                    entryIndex === index ? { ...entry, quantity } : entry
+                                  )));
+                                }}
+                                aria-label={`Quantity for ${item.productName}`}
+                              />
+                            </td>
+                            <td>₹{(Number(item.unitPrice || 0) * Number(item.quantity || 0)).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label htmlFor="complete-history-edit-reason" className="form-label small fw-semibold">
+                    Reason for correction
+                  </label>
+                  <input
+                    id="complete-history-edit-reason"
+                    type="text"
+                    className="form-control"
+                    maxLength="500"
+                    required
+                    value={editReason}
+                    disabled={savingBill}
+                    onChange={(event) => setEditReason(event.target.value)}
+                  />
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    disabled={savingBill}
+                    onClick={() => setEditingInvoice(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-warning"
+                    disabled={savingBill || !editReason.trim() || editItems.length === 0}
+                  >
+                    {savingBill ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingInvoice && canManageBills && (
+        <div className="modal show d-block" tabIndex="-1" role="dialog" aria-modal="true" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content shadow-lg">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold text-white">Permanently delete bill</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  aria-label="Close"
+                  disabled={deletingBill}
+                  onClick={() => setDeletingInvoice(null)}
+                />
+              </div>
+              <div className="modal-body">
+                <p className="mb-2">
+                  Permanently delete invoice <strong>{deletingInvoice.invoiceNumber}</strong>?
+                </p>
+                <p className="small text-danger">
+                  This permanently removes the bill and cannot be undone. For an active bill, stock is restored and any linked order is cancelled/refunded in the same database transaction. Previously cancelled bills are removed without repeating those actions.
+                </p>
+                <label htmlFor="complete-history-delete-reason" className="form-label small fw-semibold">
+                  Reason for permanent deletion
+                </label>
+                <textarea
+                  id="complete-history-delete-reason"
+                  className="form-control"
+                  rows="3"
+                  maxLength="500"
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                  disabled={deletingBill}
+                  required
+                />
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  disabled={deletingBill}
+                  onClick={() => setDeletingInvoice(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={deletingBill || !deleteReason.trim()}
+                  onClick={handleDeleteBill}
+                >
+                  {deletingBill ? 'Deleting...' : 'Confirm Permanent Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

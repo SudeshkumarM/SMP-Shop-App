@@ -138,10 +138,12 @@ const CustomerRegister = () => {
       });
 
       if (res.data.success) {
-        navigate('/customer/login', {
+        navigate('/customer/verify-otp', {
           replace: true,
           state: {
-            registrationSuccess: res.data.message || 'Registration successful.'
+            email: email.trim().toLowerCase(),
+            verificationMode: 'registration',
+            registrationSuccess: res.data.message || 'Registration successful. Verify your email to continue.'
           }
         });
       }

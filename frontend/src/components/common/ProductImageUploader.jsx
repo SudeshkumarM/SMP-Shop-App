@@ -7,6 +7,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
   const [uploading, setUploading] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const [selectedPreviews, setSelectedPreviews] = useState([]);
   
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -38,6 +39,8 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
 
     const validFiles = files.filter(validateFile);
     if (validFiles.length === 0) return;
+    const previewUrls = validFiles.map(file => URL.createObjectURL(file));
+    setSelectedPreviews(previewUrls);
 
     setUploading(true);
     try {
@@ -54,9 +57,16 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
         const updated = [...images, ...res.data.imageUrls];
         onChange(updated);
         addToast(`${res.data.imageUrls.length} image(s) uploaded successfully!`, 'success');
+        selectedPreviews.forEach(url => URL.revokeObjectURL(url));
+        setSelectedPreviews([]);
       }
     } catch (err) {
-      addToast(err.response?.data?.message || 'Failed to upload images', 'error');
+      const errorMsg = err.response?.data?.message || 'Failed to upload images';
+      if (errorMsg.includes('not configured')) {
+        addToast('Image storage not configured. Using URL-only mode or contact admin.', 'warning');
+      } else {
+        addToast(errorMsg, 'error');
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -87,7 +97,12 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
         addToast('Image replaced successfully!', 'success');
       }
     } catch (err) {
-      addToast(err.response?.data?.message || 'Failed to replace image', 'error');
+      const errorMsg = err.response?.data?.message || 'Failed to replace image';
+      if (errorMsg.includes('not configured')) {
+        addToast('Image storage not configured. Use URL-only mode.', 'warning');
+      } else {
+        addToast(errorMsg, 'error');
+      }
     } finally {
       setUploading(false);
       replaceIndexRef.current = null;
@@ -223,6 +238,21 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
       )}
 
       {/* Image Preview Grid */}
+      {selectedPreviews.length > 0 && (
+        <div className="row g-2 mb-3" aria-label="Selected image previews">
+          {selectedPreviews.map((previewUrl, idx) => (
+            <div key={previewUrl} className="col-4 col-sm-3 col-md-2">
+              <img
+                src={previewUrl}
+                alt={`Selected preview ${idx + 1}`}
+                className="rounded border"
+                style={{ width: '100%', height: '110px', objectFit: 'cover', backgroundColor: '#F1F5F9' }}
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       {images.length > 0 ? (
         <div className="row g-2">
           {images.map((imgUrl, idx) => (

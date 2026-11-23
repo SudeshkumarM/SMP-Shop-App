@@ -18,6 +18,7 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cameraDevices, setCameraDevices] = useState([]);
+  const [loadError, setLoadError] = useState(false);
 
   // Live Test Mode State
   const [testInput, setTestInput] = useState('');
@@ -26,13 +27,17 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
   const [testResult, setTestResult] = useState(null);
 
   const fetchSettings = async () => {
+    setLoadError(false);
     try {
       setLoading(true);
       const res = await api.get('/settings/scanner');
       if (res.data?.success && res.data.settings) {
         setSettings(res.data.settings);
+      } else {
+        setLoadError(true);
       }
     } catch (err) {
+      setLoadError(true);
       console.error('Fetch scanner settings error:', err);
       addToast(err.response?.data?.message || 'Error loading scanner settings', 'error');
     } finally {
@@ -78,6 +83,11 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const setScannerEnabled = (enabled) => {
+    if (!enabled && !window.confirm('Disable barcode and camera scanning at all POS terminals?')) return;
+    setSettings((current) => ({ ...current, scannerActivated: enabled }));
   };
 
   const handleRunTest = async (e) => {
@@ -146,6 +156,11 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
               <div className="text-center py-5">
                 <div className="spinner-border text-primary" role="status"></div>
               </div>
+            ) : loadError ? (
+              <div className="alert alert-warning mb-0">
+                <p className="mb-3">The saved scanner state could not be loaded. Settings are unavailable until the database value is retrieved.</p>
+                <button type="button" className="btn btn-outline-dark btn-sm" onClick={fetchSettings}>Retry loading settings</button>
+              </div>
             ) : (
               <form onSubmit={handleSaveSettings}>
                 {/* Master Activation Toggle */}
@@ -159,9 +174,12 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
                       className="form-check-input"
                       type="checkbox"
                       checked={settings.scannerActivated}
-                      onChange={(e) => setSettings({ ...settings, scannerActivated: e.target.checked })}
+                      onChange={(e) => setScannerEnabled(e.target.checked)}
                     />
                   </div>
+                  <span className={`badge ${settings.scannerActivated ? 'bg-success' : 'bg-secondary'}`}>
+                    {settings.scannerActivated ? 'ON' : 'OFF'}
+                  </span>
                 </div>
 
                 <div className="row g-3 mb-3">
@@ -187,9 +205,12 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
                       value={settings.barcodeFormat}
                       onChange={(e) => setSettings({ ...settings, barcodeFormat: e.target.value })}
                     >
-                      <option value="CODE128">CODE128 (Universal)</option>
-                      <option value="EAN13">EAN-13 (Standard Retail)</option>
-                      <option value="UPCA">UPC-A (Standard Retail)</option>
+                      <option value="CODE128">Code 128</option>
+                      <option value="EAN13">EAN-13</option>
+                      <option value="EAN8">EAN-8</option>
+                      <option value="UPCA">UPC-A</option>
+                      <option value="UPCE">UPC-E</option>
+                      <option value="CODE39">Code 39</option>
                     </select>
                   </div>
                 </div>
@@ -363,14 +384,7 @@ const AdminScannerSettings = ({ role = 'admin' }) => {
                   </button>
                 </div>
                 <div className="d-flex justify-content-between mt-1">
-                  <small className="text-muted">Press Enter to simulate USB scanner wedge</small>
-                  <button
-                    type="button"
-                    className="btn btn-link btn-sm text-info p-0 text-decoration-none"
-                    onClick={() => setTestInput('8901234567890')}
-                  >
-                    Load Shirt Barcode
-                  </button>
+                  <small className="text-muted">Press Enter after scanning or typing a real barcode.</small>
                 </div>
               </div>
             </form>

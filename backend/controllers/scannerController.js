@@ -2,7 +2,33 @@ const ScannerSettings = require('../models/ScannerSettings');
 const Product = require('../models/Product');
 const Invoice = require('../models/Invoice');
 const Shop = require('../models/Shop');
+const Staff = require('../models/Staff');
 const { emitRealtimeUpdate } = require('../utils/realtime');
+
+const parseBoolean = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === 1) return true;
+  if (value === 'false' || value === 0) return false;
+  return null;
+};
+
+const resolveScannerShopId = async (req) => {
+  let shopId = req.user?.shopId;
+  if (!shopId && req.user?.role === 'staff') {
+    const staff = await Staff.findOne({ userId: req.user._id, isActive: true })
+      .select('shopId')
+      .lean();
+    shopId = staff?.shopId;
+  }
+  if (!shopId) {
+    const shop = await Shop.findOne({ isActive: true })
+      .sort({ createdAt: 1, _id: 1 })
+      .select('_id')
+      .lean();
+    shopId = shop?._id;
+  }
+  return shopId;
+};
 
 /**
  * @desc    Get Scanner Settings
@@ -11,10 +37,9 @@ const { emitRealtimeUpdate } = require('../utils/realtime');
  */
 const getScannerSettings = async (req, res) => {
   try {
-    let shopId = req.user?.shopId;
+    const shopId = await resolveScannerShopId(req);
     if (!shopId) {
-      const fallbackShop = await Shop.findOne({ isActive: true });
-      shopId = fallbackShop?._id;
+      return res.status(404).json({ success: false, message: 'No active shop is configured.' });
     }
 
     let settings = await ScannerSettings.findOne({ shopId });
@@ -42,10 +67,9 @@ const getScannerSettings = async (req, res) => {
  */
 const updateScannerSettings = async (req, res) => {
   try {
-    let shopId = req.user?.shopId;
+    const shopId = await resolveScannerShopId(req);
     if (!shopId) {
-      const fallbackShop = await Shop.findOne({ isActive: true });
-      shopId = fallbackShop?._id;
+      return res.status(404).json({ success: false, message: 'No active shop is configured.' });
     }
 
     const {
@@ -66,7 +90,14 @@ const updateScannerSettings = async (req, res) => {
     if (scannerType) settings.scannerType = scannerType;
     if (barcodeFormat) settings.barcodeFormat = barcodeFormat;
     if (qrConfig) settings.qrConfig = { ...settings.qrConfig, ...qrConfig };
-    if (scannerActivated !== undefined) settings.scannerActivated = Boolean(scannerActivated);
+    if (scannerActivated !== undefined) {
+      const parsedScannerActivated = parseBoolean(scannerActivated);
+      if (parsedScannerActivated === null) {
+        return res.status(400).json({ success: false, message: 'Scanner activation must be a Boolean value.' });
+      }
+      settings.scannerActivated = parsedScannerActivated;
+    }
+    settings.updatedBy = req.user._id;
     if (selectedCameraId !== undefined) settings.selectedCameraId = selectedCameraId;
     if (cameraPermissionStatus) settings.cameraPermissionStatus = cameraPermissionStatus;
     if (defaultScanner) settings.defaultScanner = defaultScanner;
@@ -144,11 +175,7 @@ const testScanner = async (req, res) => {
     }
 
     // Update settings test status
-    let shopId = req.user?.shopId;
-    if (!shopId) {
-      const fallbackShop = await Shop.findOne({ isActive: true });
-      shopId = fallbackShop?._id;
-    }
+    const shopId = await resolveScannerShopId(req);
 
     await ScannerSettings.findOneAndUpdate(
       { shopId },

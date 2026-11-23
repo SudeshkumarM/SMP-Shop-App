@@ -5,18 +5,199 @@ const Invoice = require('../models/Invoice');
 const Customer = require('../models/Customer');
 const Staff = require('../models/Staff');
 const Shop = require('../models/Shop');
-const User = require('../models/User');
+const QRCode = require('../models/QRCode');
+const Branch = require('../models/Branch');
 const WhatsAppService = require('../services/whatsappService');
 const { generateInvoiceBarcode } = require('../utils/generateBarcode');
 const { emitRealtimeUpdate } = require('../utils/realtime');
+const { calculatePosBill, roundCurrency } = require('../utils/billingCalculations');
 const xlsx = require('xlsx');
+const mongoose = require('mongoose');
 
-const generateInvoiceNumber = async (shopPrefix = 'SMP') => {
+const generateInvoiceNumber = async (shopPrefix = 'SMP', session) => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const count = await Invoice.countDocuments();
+  const countQuery = Invoice.countDocuments();
+  if (session) countQuery.session(session);
+  const count = await countQuery;
   const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
   const sequence = String(count + 1).padStart(4, '0');
   return `${shopPrefix}-INV-${dateStr}-${sequence}-${randomSuffix}`;
+};
+
+const resolveBillingContext = async (user, session) => {
+  const staffQuery = Staff.findOne({ userId: user._id, isActive: true });
+  if (session) staffQuery.session(session);
+  const staff = await staffQuery;
+  const assignedShopId = user.shopId || staff?.shopId;
+
+  let shopQuery;
+  if (assignedShopId) {
+    shopQuery = Shop.findOne({ _id: assignedShopId, isActive: true });
+  } else if (user.role === 'owner') {
+    shopQuery = Shop.findOne({ ownerId: user._id, isActive: true }).sort({ createdAt: 1, _id: 1 });
+  } else {
+    shopQuery = Shop.findOne({ isActive: true }).sort({ createdAt: 1, _id: 1 });
+  }
+  if (session) shopQuery.session(session);
+  const shop = await shopQuery;
+
+  const branchId = user.branchId || staff?.branchId;
+  let branch = null;
+  if (shop && branchId) {
+    const branchQuery = Branch.findOne({ _id: branchId, shopId: shop._id, isActive: true });
+    if (session) branchQuery.session(session);
+    branch = await branchQuery;
+  }
+
+  return { shop, staff, branch };
+};
+
+const formatAddress = (address = {}) => (
+  [address.street, address.city, address.state, address.pincode, address.country]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(', ')
+);
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getDeliveryCharge = (settings, subtotal, requested) => {
+  if (!requested) return 0;
+  const delivery = settings || {};
+  if (delivery.enabled !== true) {
+    const error = new Error('Home delivery is not enabled for this shop.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const fee = Number(delivery.deliveryCharge);
+  const threshold = Number(delivery.freeDeliveryThreshold);
+  if (!Number.isFinite(fee) || fee < 0 || !Number.isFinite(threshold) || threshold < 0) {
+    const error = new Error('The saved delivery settings are invalid. Please contact an administrator.');
+    error.statusCode = 500;
+    throw error;
+  }
+  if (threshold > 0 && subtotal >= threshold) return 0;
+  return roundCurrency(delivery.chargeType === 'PERCENT' ? subtotal * fee / 100 : fee);
+};
+
+const isValidPaymentQrImage = (imageUrl) => {
+  if (typeof imageUrl !== 'string' || !imageUrl.trim()) return false;
+  const value = imageUrl.trim();
+  if (/^\/uploads\/[A-Za-z0-9._-]+$/.test(value)) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const getBillingSettings = async (req, res) => {
+  try {
+    const { shop, staff, branch } = await resolveBillingContext(req.user);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'No active shop is assigned to this account.' });
+    }
+
+    res.status(200).json({
+      success: true,
+      settings: {
+        gstEnabled: shop.settings?.gstSettings?.enabled !== false,
+        delivery: {
+          enabled: shop.settings?.deliverySettings?.enabled === true,
+          deliveryCharge: Number(shop.settings?.deliverySettings?.deliveryCharge) || 0,
+          freeDeliveryThreshold: Number(shop.settings?.deliverySettings?.freeDeliveryThreshold) || 0,
+          chargeType: shop.settings?.deliverySettings?.chargeType === 'PERCENT' ? 'PERCENT' : 'FLAT',
+          description: shop.settings?.deliverySettings?.description || ''
+        }
+      },
+      shopInfo: {
+        name: shop.name,
+        address: formatAddress(branch?.address || shop.address),
+        phone: branch?.phone || shop.contactPhone || '',
+        email: branch?.email || shop.contactEmail || '',
+        gstNumber: shop.gstNumber || ''
+      },
+      branchInfo: branch ? {
+        name: branch.name,
+        address: formatAddress(branch.address),
+        phone: branch.phone || '',
+        email: branch.email || ''
+      } : null,
+      staffInfo: staff ? { fullName: staff.fullName, staffId: staff.staffId } : null
+    });
+  } catch (error) {
+    console.error('[BillingController] Could not load billing settings:', error);
+    res.status(500).json({ success: false, message: 'Billing settings could not be loaded.' });
+  }
+};
+
+const getBillingPaymentQrs = async (req, res) => {
+  try {
+    const { shop } = await resolveBillingContext(req.user);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'No active shop is assigned to this account.' });
+    }
+
+    const savedPaymentQrs = await QRCode.find({
+      shopId: shop._id,
+      qrType: 'PAYMENT',
+      status: 'ACTIVE'
+    })
+      .select('title targetName qrData imageUrl description createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+    const paymentQrs = savedPaymentQrs.map((qr) => ({
+      ...qr,
+      imageUrl: isValidPaymentQrImage(qr.imageUrl) ? qr.imageUrl.trim() : ''
+    })).filter((qr) => qr.imageUrl || (typeof qr.qrData === 'string' && qr.qrData.trim()));
+
+    res.status(200).json({
+      success: true,
+      shopName: shop.name,
+      paymentQrs
+    });
+  } catch (error) {
+    console.error('[BillingController] Could not load payment QR settings:', error);
+    res.status(500).json({ success: false, message: 'Payment QR settings could not be loaded.' });
+  }
+};
+
+const lookupProductPOS = async (req, res) => {
+  try {
+    const code = String(req.params.code || '').trim();
+    if (!code || code.length > 128) {
+      return res.status(400).json({ success: false, message: 'Enter a valid product barcode or SKU.' });
+    }
+
+    const { shop, staff } = await resolveBillingContext(req.user);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'No active shop is assigned to this account.' });
+    }
+    if (req.user.role === 'staff' && !staff) {
+      return res.status(403).json({ success: false, message: 'The active staff profile could not be found.' });
+    }
+
+    const product = await Product.findOne({
+      shopId: shop._id,
+      isActive: true,
+      $or: [
+        { barcode: { $regex: `^${escapeRegex(code)}$`, $options: 'i' } },
+        { sku: code.toUpperCase() },
+        { qrCodeData: code }
+      ]
+    }).select('name sku barcode sellingPrice gstPercent availableQuantity sizes colours images').lean();
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+
+    return res.status(200).json({ success: true, product });
+  } catch (error) {
+    console.error('[BillingController] POS barcode lookup failed:', error);
+    return res.status(500).json({ success: false, message: 'Product lookup could not be completed.' });
+  }
 };
 
 /**
@@ -27,26 +208,27 @@ const generateInvoiceNumber = async (shopPrefix = 'SMP') => {
 const searchProductPOS = async (req, res) => {
   try {
     const { query } = req.query;
-    if (!query) {
-      // Default to returning active products in store catalog
-      const products = await Product.find({ isActive: true }).limit(10);
-      return res.status(200).json({ success: true, products });
+    const { shop } = await resolveBillingContext(req.user);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'No active shop is assigned to this account.' });
     }
 
-    const shopId = req.user.shopId;
-    const filter = { isActive: true };
-    if (shopId) filter.shopId = shopId;
-
-    filter.$or = [
-      { barcode: query.trim() },
-      { sku: query.toUpperCase().trim() },
-      { name: { $regex: query.trim(), $options: 'i' } }
-    ];
+    const filter = { shopId: shop._id, isActive: true };
+    if (query && String(query).trim()) {
+      const cleanQuery = String(query).trim();
+      const escapedQuery = escapeRegex(cleanQuery);
+      filter.$or = [
+        { barcode: cleanQuery },
+        { sku: cleanQuery.toUpperCase() },
+        { name: { $regex: escapedQuery, $options: 'i' } }
+      ];
+    }
 
     const products = await Product.find(filter).limit(10);
     res.status(200).json({ success: true, products });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error('[BillingController] POS product search failed:', error);
+    res.status(500).json({ success: false, message: 'Products could not be searched.' });
   }
 };
 
@@ -56,287 +238,434 @@ const searchProductPOS = async (req, res) => {
  * @access  Private (Staff, Admin, Owner)
  */
 const createBillingTransaction = async (req, res) => {
+  const { requestId } = req.body;
+  let session;
+  const requestKey = typeof requestId === 'string'
+    ? `${req.user._id}:${requestId.trim()}`
+    : null;
+
   try {
     const {
-      items, // [{ productId, size, colour, quantity, unitPrice, discountAmount, gstPercent }]
+      items,
       discountType = 'flat',
       discountValue = 0,
-      deliveryCharge = 0,
+      hasDelivery = false,
       customerPhone,
       customerName,
       customerEmail,
-      consentPromotionalWhatsApp,
-      sendWhatsAppInvoice = false,
-      paymentMethod = 'POS_CASH',
-      paymentStatus = 'PAID'
+      paymentMethod = 'POS_CASH'
     } = req.body;
 
-    if (!items || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'Please add at least one product to the bill.' });
+    if (typeof requestId !== 'string' || requestId.trim().length < 8 || requestId.length > 64) {
+      return res.status(400).json({ success: false, message: 'A valid billing request ID is required.' });
+    }
+    const rawExpectedGrandTotal = req.body.expectedGrandTotal;
+    const expectedGrandTotal = Number(rawExpectedGrandTotal);
+    if (
+      !['number', 'string'].includes(typeof rawExpectedGrandTotal) ||
+      String(rawExpectedGrandTotal).trim() === '' ||
+      !Number.isFinite(expectedGrandTotal) ||
+      expectedGrandTotal < 0
+    ) {
+      return res.status(400).json({ success: false, message: 'A valid expected payment amount is required.' });
+    }
+    if (!['POS_CASH', 'POS_CARD', 'POS_UPI', 'POS_UPI_QR'].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, message: 'The selected payment method is not supported.' });
+    }
+    if (req.body.paymentReference !== undefined && typeof req.body.paymentReference !== 'string') {
+      return res.status(400).json({ success: false, message: 'Payment reference must be text.' });
+    }
+    const paymentReference = String(req.body.paymentReference || '').trim();
+    if (paymentReference.length > 128) {
+      return res.status(400).json({ success: false, message: 'Payment reference must be 128 characters or fewer.' });
+    }
+    if (['POS_UPI', 'POS_UPI_QR'].includes(paymentMethod) && !paymentReference) {
+      return res.status(400).json({ success: false, message: 'Enter the UPI transaction reference before completing the bill.' });
+    }
+    if (paymentMethod === 'POS_UPI_QR' && !mongoose.Types.ObjectId.isValid(req.body.paymentQrId)) {
+      return res.status(400).json({ success: false, message: 'Select an active Owner-configured payment QR.' });
+    }
+    if (!Array.isArray(items) || items.length === 0 || items.some((item) => (
+      !item || !mongoose.Types.ObjectId.isValid(item.productId)
+    ))) {
+      return res.status(400).json({ success: false, message: 'The bill must contain valid product selections.' });
+    }
+    if (typeof hasDelivery !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'Delivery selection is invalid.' });
+    }
+    if (typeof customerName !== 'string' || !customerName.trim() || customerName.trim().length > 120) {
+      return res.status(400).json({ success: false, message: 'A valid customer name is required.' });
+    }
+    const normalizedPhone = String(customerPhone || '').replace(/[^\d+]/g, '');
+    if (!/^\+?\d{10,15}$/.test(normalizedPhone)) {
+      return res.status(400).json({ success: false, message: 'A valid customer phone number is required.' });
+    }
+    if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(customerEmail).trim())) {
+      return res.status(400).json({ success: false, message: 'Customer email address is invalid.' });
     }
 
-    // QR Payment Verification Guard
-    const { transactionRef } = req.body;
-    if (paymentMethod === 'POS_UPI_QR') {
-      if (!transactionRef || String(transactionRef).trim().length < 6) {
-        return res.status(400).json({
-          success: false,
-          message: 'Payment verification failed: A valid UPI Transaction Reference / UTR (at least 6 digits) is required for QR payment.'
-        });
-      }
-      const existingTxn = await Order.findOne({ 'paymentDetails.transactionRef': String(transactionRef).trim() });
-      if (existingTxn) {
-        return res.status(400).json({
-          success: false,
-          message: 'This UPI Reference Number has already been recorded on a previous invoice.'
-        });
-      }
-    }
+    session = await Invoice.startSession();
+    let order;
+    let invoice;
+    let shop;
+    let customer;
+    let staff;
+    let paymentQr;
+    let billItems;
+    const cleanRequestId = requestKey;
 
-    const shopId = req.user.shopId;
-    const shop = (await Shop.findById(shopId)) || (await Shop.findOne({ isActive: true }));
-    const staff = await Staff.findOne({ userId: req.user._id });
-
-    // Customer resolution or quick counter enrollment
-    let customer = null;
-    if (customerPhone) {
-      customer = await Customer.findOne({ phone: customerPhone.trim() });
-      if (!customer && customerName) {
-        try {
-          const uniqueId = `WALKIN-${Date.now().toString().slice(-6)}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-          customer = await Customer.create({
-            userId: null,
-            customerId: uniqueId,
-            fullName: customerName,
-            phone: customerPhone.trim(),
-            email: customerEmail || `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 5)}@walkin.smp`,
-            consentPromotionalWhatsApp: Boolean(consentPromotionalWhatsApp)
-          });
-        } catch (cErr) {
-          customer = await Customer.findOne({ phone: customerPhone.trim() });
+    await session.withTransaction(async () => {
+      const existingInvoice = await Invoice.findOne({ requestId: cleanRequestId }).session(session);
+      if (existingInvoice) {
+        if (roundCurrency(expectedGrandTotal) !== roundCurrency(existingInvoice.grandTotal)) {
+          const error = new Error('This billing request ID was already used for a different payment amount.');
+          error.statusCode = 409;
+          throw error;
         }
-      } else if (customer && consentPromotionalWhatsApp !== undefined) {
-        customer.consentPromotionalWhatsApp = Boolean(consentPromotionalWhatsApp);
+        invoice = existingInvoice;
+        order = existingInvoice.orderId
+          ? await Order.findById(existingInvoice.orderId).session(session)
+          : null;
+        return;
       }
-    }
 
-    let subtotal = 0;
-    let totalItemsGst = 0;
-    let totalCost = 0;
-    const billItems = [];
-    const decrementedProducts = [];
-
-    // Atomic Stock Validation & Deduction (Concurreny Safe for 1000 users)
-    for (const line of items) {
-      const lineQty = Number(line.quantity) || 1;
-      const updatedProduct = await Product.findOneAndUpdate(
-        {
-          _id: line.productId,
-          availableQuantity: { $gte: lineQty },
-          isActive: true
-        },
-        { $inc: { availableQuantity: -lineQty } },
-        { new: true }
-      );
-
-      if (!updatedProduct) {
-        // Rollback any items already decremented in this transaction
-        for (const rolled of decrementedProducts) {
-          await Product.findByIdAndUpdate(rolled.productId, { $inc: { availableQuantity: rolled.quantity } });
+      const context = await resolveBillingContext(req.user, session);
+      ({ shop, staff } = context);
+      if (!shop) {
+        const error = new Error('No active shop is assigned to this account.');
+        error.statusCode = 404;
+        throw error;
+      }
+      if (req.user.role === 'staff' && !staff) {
+        const error = new Error('The active staff profile could not be found.');
+        error.statusCode = 403;
+        throw error;
+      }
+      if (paymentMethod === 'POS_UPI_QR') {
+        paymentQr = await QRCode.findOne({
+          _id: req.body.paymentQrId,
+          shopId: shop._id,
+          qrType: 'PAYMENT',
+          status: 'ACTIVE'
+        }).session(session);
+        if (!paymentQr || (!isValidPaymentQrImage(paymentQr.imageUrl) && !String(paymentQr.qrData || '').trim())) {
+          const error = new Error('The selected payment QR is no longer available. Refresh payment settings and try again.');
+          error.statusCode = 409;
+          throw error;
         }
-        return res.status(400).json({
-          success: false,
-          message: `Insufficient stock or concurrent purchase conflict for item: ${line.productName || line.productId}. Transaction aborted.`
-        });
       }
 
-      decrementedProducts.push({ productId: updatedProduct._id, quantity: lineQty });
-
-      const unitPrice = Number(line.unitPrice || updatedProduct.sellingPrice);
-      const lineGstPercent = Number(line.gstPercent !== undefined ? line.gstPercent : (updatedProduct.gstPercent || 5));
-      const lineDiscount = Number(line.discountAmount || 0);
-
-      const lineBase = (unitPrice * lineQty) - lineDiscount;
-      const lineGst = (lineBase * lineGstPercent) / 100;
-      const lineTotal = lineBase + lineGst;
-
-      subtotal += lineBase;
-      totalItemsGst += lineGst;
-      totalCost += (updatedProduct.costPrice || 0) * lineQty;
-
-      billItems.push({
-        productId: updatedProduct._id,
-        productName: updatedProduct.name,
-        sku: updatedProduct.sku,
-        barcode: updatedProduct.barcode,
-        size: line.size || 'M',
-        colour: line.colour || 'White',
-        quantity: lineQty,
-        costPrice: updatedProduct.costPrice,
-        unitPrice,
-        discountAmount: lineDiscount,
-        gstPercent: lineGstPercent,
-        gstAmount: Math.round(lineGst * 100) / 100,
-        totalAmount: Math.round(lineTotal * 100) / 100
+      const productIds = [...new Set(items.map((item) => String(item.productId || '')))];
+      const productsQuery = Product.find({
+        _id: { $in: productIds },
+        shopId: shop._id,
+        isActive: true
+      }).session(session);
+      const products = await productsQuery;
+      const productsById = new Map(products.map((product) => [String(product._id), product]));
+      const totals = calculatePosBill({
+        items,
+        productsById,
+        discountType,
+        discountValue,
+        gstEnabled: shop.settings?.gstSettings?.enabled !== false
       });
-    }
-
-    // Overall discount calculation
-    let overallDiscount = 0;
-    if (discountType === 'percent' && discountValue > 0) {
-      overallDiscount = (subtotal * discountValue) / 100;
-    } else if (discountType === 'flat' && discountValue > 0) {
-      overallDiscount = Number(discountValue);
-    }
-
-    const netSubtotal = Math.max(0, subtotal - overallDiscount);
-    const cgstAmount = Math.round((totalItemsGst / 2) * 100) / 100;
-    const sgstAmount = Math.round((totalItemsGst / 2) * 100) / 100;
-    const deliveryAmount = Math.max(0, Number(deliveryCharge) || 0);
-    const grandTotal = Math.round((netSubtotal + totalItemsGst + deliveryAmount) * 100) / 100;
-
-    const invoiceNumber = await generateInvoiceNumber(shop ? shop.settings.invoicePrefix : 'SMP');
-    const orderNumber = `POS-${Date.now().toString().slice(-8)}`;
-
-    // Create Order Record
-    const order = await Order.create({
-      orderNumber,
-      orderType: 'POS',
-      shopId: shop ? shop._id : null,
-      branchId: req.user.branchId || null,
-      staffId: staff ? staff._id : null,
-      customerId: customer ? customer._id : null,
-      customerDetails: {
-        name: customerName || (customer ? customer.fullName : 'Walk-in Customer'),
-        phone: customerPhone || (customer ? customer.phone : 'N/A'),
-        email: customerEmail || (customer ? customer.email : '')
-      },
-      items: billItems,
-      subtotal: Math.round(subtotal * 100) / 100,
-      totalDiscount: Math.round(overallDiscount * 100) / 100,
-      totalGst: Math.round(totalItemsGst * 100) / 100,
-      deliveryCharge: deliveryAmount,
-      shippingFee: deliveryAmount,
-      grandTotal,
-      totalCost: Math.round(totalCost * 100) / 100,
-      paymentMethod,
-      paymentStatus,
-      paymentDetails: { transactionRef: transactionRef || null },
-      orderStatus: 'DELIVERED',
-      invoiceNumber
-    });
-
-    // Create Invoice Record
-    const invoice = await Invoice.create({
-      invoiceNumber,
-      orderId: order._id,
-      shopId: shop ? shop._id : null,
-      branchId: req.user.branchId || null,
-      staffId: staff ? staff._id : null,
-      customerId: customer ? customer._id : null,
-      shopInfo: {
-        name: shop ? shop.name : 'SMP',
-        address: shop && shop.address ? `${shop.address.street}, ${shop.address.city}` : 'SMP Central Retail Mall',
-        phone: shop ? shop.contactPhone : '+91 98765 43210',
-        email: shop ? shop.contactEmail : 'billing@smp.com',
-        gstNumber: shop ? shop.gstNumber : '33AAAAA0000A1Z5'
-      },
-      customerInfo: {
-        name: customerName || (customer ? customer.fullName : 'Walk-in Customer'),
-        phone: customerPhone || (customer ? customer.phone : 'N/A'),
-        email: customerEmail || (customer ? customer.email : ''),
-        address: 'In-Store Counter Terminal'
-      },
-      items: billItems,
-      subtotal: Math.round(subtotal * 100) / 100,
-      totalDiscount: Math.round(overallDiscount * 100) / 100,
-      deliveryCharge: deliveryAmount,
-      cgstAmount,
-      sgstAmount,
-      igstAmount: 0,
-      grandTotal,
-      paymentMethod,
-      paymentStatus,
-      paymentDetails: { transactionRef: transactionRef || null },
-      deliveryStatus: 'PENDING',
-      barcode: generateInvoiceBarcode(invoiceNumber),
-      printedCount: 1
-    });
-
-    // Inventory ledger logging
-    for (const item of billItems) {
-      await Inventory.findOneAndUpdate(
-        { productId: item.productId },
-        {
-          $inc: { currentStock: -item.quantity },
-          $push: {
-            stockLogs: {
-              type: 'SALE',
-              quantity: item.quantity,
-              referenceId: invoiceNumber,
-              notes: `POS Bill: ${invoiceNumber}`,
-              performedBy: req.user._id
-            }
-          }
-        }
+      totals.deliveryCharge = getDeliveryCharge(
+        shop.settings?.deliverySettings,
+        totals.subtotal,
+        hasDelivery === true
       );
+      totals.grandTotal = roundCurrency(
+        totals.subtotal - totals.totalDiscount + totals.totalGst + totals.deliveryCharge
+      );
+      const grandTotal = totals.grandTotal;
+
+      if (roundCurrency(expectedGrandTotal) !== grandTotal) {
+        const error = new Error('The bill total changed. Refresh the products and confirm the payment amount again.');
+        error.statusCode = 409;
+        throw error;
+      }
+
+      if (paymentMethod === 'POS_CASH') {
+        if (
+          req.body.amountReceived === undefined ||
+          req.body.amountReceived === null ||
+          req.body.amountReceived === ''
+        ) {
+          const error = new Error('Enter the amount received before completing the bill.');
+          error.statusCode = 400;
+          throw error;
+        }
+        const rawReceivedAmount = req.body.amountReceived;
+        const received = Number(rawReceivedAmount);
+        if (
+          !['number', 'string'].includes(typeof rawReceivedAmount) ||
+          String(rawReceivedAmount).trim() === '' ||
+          !Number.isFinite(received) ||
+          received < grandTotal
+        ) {
+          const error = new Error('Amount received must cover the total payable.');
+          error.statusCode = 400;
+          throw error;
+        }
+      } else if (req.body.paymentConfirmed !== true) {
+        const error = new Error('Confirm that payment was received before completing this bill.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const branchId = context.branch?._id || null;
+      customer = await Customer.findOne({ phone: normalizedPhone }).session(session);
+      const customerInfo = {
+        name: customerName.trim(),
+        phone: normalizedPhone,
+        email: String(customerEmail || customer?.email || '').trim(),
+        address: 'In-Store Counter Terminal'
+      };
+      const invoiceNumber = await generateInvoiceNumber(shop.settings?.invoicePrefix || 'SMP', session);
+      const orderNumber = `POS-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+      for (const item of totals.billItems) {
+        const updatedProduct = await Product.findOneAndUpdate(
+          {
+            _id: item.productId,
+            shopId: shop._id,
+            availableQuantity: { $gte: item.quantity },
+            isActive: true
+          },
+          { $inc: { availableQuantity: -item.quantity } },
+          { new: true, session }
+        );
+        if (!updatedProduct) {
+          const error = new Error(`Insufficient stock or product availability changed for ${item.productName}.`);
+          error.statusCode = 409;
+          throw error;
+        }
+
+        const inventory = await Inventory.findOne({
+          productId: item.productId,
+          shopId: shop._id
+        }).session(session);
+        const previousStock = inventory
+          ? Number(inventory.currentStock)
+          : Number(updatedProduct.availableQuantity) + item.quantity;
+        if (inventory && previousStock < item.quantity) {
+          const error = new Error(`Inventory ledger stock is insufficient for ${item.productName}.`);
+          error.statusCode = 409;
+          throw error;
+        }
+        const newStock = previousStock - item.quantity;
+        const stockLog = {
+          type: 'SALE',
+          quantity: item.quantity,
+          previousStock,
+          newStock,
+          unitCost: item.costPrice,
+          referenceId: invoiceNumber,
+          notes: `POS Bill: ${invoiceNumber}`,
+          performedBy: req.user._id
+        };
+        if (inventory) {
+          inventory.currentStock = newStock;
+          inventory.stockLogs.push(stockLog);
+          await inventory.save({ session });
+        } else {
+          await Inventory.create([{
+            productId: item.productId,
+            shopId: shop._id,
+            branchId,
+            currentStock: newStock,
+            costPrice: item.costPrice,
+            sellingPrice: item.unitPrice,
+            stockLogs: [stockLog]
+          }], { session });
+        }
+      }
+
+      const paymentDetails = {
+        amount: grandTotal,
+        confirmationMethod: paymentMethod === 'POS_CASH' ? 'cash-received' : 'cashier-verified',
+        confirmedBy: req.user._id,
+        confirmedAt: new Date()
+      };
+      if (paymentReference) paymentDetails.transactionRef = paymentReference;
+      if (paymentQr) {
+        paymentDetails.paymentQrId = paymentQr._id;
+        paymentDetails.paymentQrTitle = paymentQr.title;
+      }
+      if (paymentMethod === 'POS_CASH') {
+        paymentDetails.amountReceived = roundCurrency(Number(req.body.amountReceived));
+        paymentDetails.changeDue = roundCurrency(paymentDetails.amountReceived - grandTotal);
+      }
+
+      [order] = await Order.create([{
+        orderNumber,
+        orderType: 'POS',
+        shopId: shop._id,
+        branchId,
+        staffId: staff?._id || null,
+        customerId: customer?._id || null,
+        customerDetails: {
+          name: customerInfo.name,
+          phone: customerInfo.phone,
+          email: customerInfo.email
+        },
+        items: totals.billItems,
+        subtotal: totals.subtotal,
+        totalDiscount: totals.totalDiscount,
+        totalGst: totals.totalGst,
+        deliveryCharge: totals.deliveryCharge,
+        shippingFee: totals.deliveryCharge,
+        grandTotal,
+        totalCost: totals.totalCost,
+        paymentMethod,
+        paymentStatus: 'PAID',
+        paymentDetails,
+        orderStatus: 'DELIVERED',
+        invoiceNumber
+      }], { session });
+
+      [invoice] = await Invoice.create([{
+        requestId: cleanRequestId,
+        invoiceNumber,
+        orderId: order._id,
+        shopId: shop._id,
+        branchId,
+        staffId: staff?._id || null,
+        customerId: customer?._id || null,
+        shopInfo: {
+          name: shop.name,
+          address: formatAddress(context.branch?.address || shop.address),
+          phone: context.branch?.phone || shop.contactPhone || '',
+          email: context.branch?.email || shop.contactEmail || '',
+          gstNumber: shop.gstNumber || ''
+        },
+        branchInfo: context.branch ? {
+          name: context.branch.name,
+          address: formatAddress(context.branch.address),
+          phone: context.branch.phone || '',
+          email: context.branch.email || ''
+        } : undefined,
+        staffInfo: staff ? { fullName: staff.fullName, staffId: staff.staffId } : undefined,
+        customerInfo,
+        items: totals.billItems,
+        subtotal: totals.subtotal,
+        totalDiscount: totals.totalDiscount,
+        deliveryCharge: totals.deliveryCharge,
+        cgstAmount: totals.cgstAmount,
+        sgstAmount: totals.sgstAmount,
+        igstAmount: 0,
+        grandTotal,
+        paymentMethod,
+        paymentStatus: 'PAID',
+        paymentDetails,
+        deliveryStatus: 'PENDING',
+        barcode: generateInvoiceBarcode(invoiceNumber),
+        printedCount: 1
+      }], { session });
+
+      if (staff) {
+        staff.totalBillsGenerated = (staff.totalBillsGenerated || 0) + 1;
+        staff.totalSalesValue = (staff.totalSalesValue || 0) + grandTotal;
+        await staff.save({ session });
+      }
+
+      if (customer) {
+        customer.totalPurchases = (customer.totalPurchases || 0) + 1;
+        customer.totalSpend = (customer.totalSpend || 0) + grandTotal;
+        customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(grandTotal / 100);
+        customer.lastPurchaseDate = new Date();
+        await customer.save({ session });
+      }
+      billItems = totals.billItems;
+    });
+
+    if (!invoice) {
+      return res.status(500).json({ success: false, message: 'Bill transaction was not completed.' });
     }
 
-    if (staff) {
-      staff.totalBillsGenerated = (staff.totalBillsGenerated || 0) + 1;
-      staff.totalSalesValue = (staff.totalSalesValue || 0) + grandTotal;
-      await staff.save();
-    }
-
-    if (customer) {
-      customer.totalPurchases = (customer.totalPurchases || 0) + 1;
-      customer.totalSpend = (customer.totalSpend || 0) + grandTotal;
-      customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(grandTotal / 100);
-      customer.lastPurchaseDate = new Date();
-      await customer.save();
-    }
-
-    // Step 7: Send WhatsApp or SMS fallback bill notification
     let notificationResult = null;
-    if (customerPhone && String(customerPhone).trim().length >= 10) {
+    if (billItems && (!invoice.deliveryStatus || invoice.deliveryStatus === 'PENDING')) {
       try {
         notificationResult = await WhatsAppService.sendBillNotificationWithFallback({
-          phone: String(customerPhone).trim(),
-          customerName: customerName || (customer ? customer.fullName : 'Customer'),
-          invoiceNumber,
-          grandTotal,
-          itemCount: billItems.reduce((acc, curr) => acc + curr.quantity, 0),
+          phone: normalizedPhone,
+          customerName: customerName.trim(),
+          invoiceNumber: invoice.invoiceNumber,
+          grandTotal: invoice.grandTotal,
+          itemCount: (invoice.items || []).reduce((sum, item) => sum + item.quantity, 0),
           paymentMethod,
-          shopId: shop ? shop._id : null,
+          shopId: invoice.shopId,
           sentBy: req.user._id,
-          customerId: customer ? customer._id : null
+          customerId: invoice.customerId
         });
         if (notificationResult?.deliveryStatus) {
           invoice.deliveryStatus = notificationResult.deliveryStatus;
-          await invoice.save();
+          try {
+            await invoice.save();
+          } catch (saveError) {
+            console.error('[BillingController] Could not persist invoice notification status:', saveError);
+            notificationResult.statusPersistenceFailed = true;
+          }
         }
-      } catch (notifErr) {
-        console.error('[BillingController] Notification error:', notifErr.message);
-        notificationResult = { deliveryStatus: 'Failed', error: notifErr.message };
+      } catch (notificationError) {
+        console.error('[BillingController] Notification error:', notificationError);
+        notificationResult = { deliveryStatus: 'Failed' };
         invoice.deliveryStatus = 'Failed';
-        await invoice.save();
+        try {
+          await invoice.save();
+        } catch (saveError) {
+          console.error('[BillingController] Could not persist failed invoice notification status:', saveError);
+          notificationResult.statusPersistenceFailed = true;
+        }
       }
     }
 
-    // Emit real-time inventory & billing update across all clients
-    emitRealtimeUpdate(req.app, 'inventory:updated', { billItems, invoiceNumber });
-    emitRealtimeUpdate(req.app, 'bill:created', { invoice });
+    if (billItems) {
+      emitRealtimeUpdate(req.app, 'inventory:updated', { billItems, invoiceNumber: invoice.invoiceNumber });
+      emitRealtimeUpdate(req.app, 'bill:created', { invoice });
+    }
 
-    res.status(201).json({
+    res.status(billItems ? 201 : 200).json({
       success: true,
-      message: 'Billing completed and invoice generated successfully.',
+      message: billItems ? 'Billing completed and invoice generated successfully.' : 'This billing request was already completed.',
       invoice,
       order,
-      deliveryStatus: notificationResult?.deliveryStatus || 'Skipped',
-      notificationChannel: notificationResult?.channel || 'None'
+      deliveryStatus: notificationResult?.deliveryStatus || invoice.deliveryStatus || 'Skipped',
+      notificationChannel: notificationResult?.channel || 'None',
+      notificationStatusPersistenceFailed: notificationResult?.statusPersistenceFailed || false,
+      duplicate: !billItems
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    if (error.code === 11000 && requestKey) {
+      try {
+        const existingInvoice = await Invoice.findOne({ requestId: requestKey });
+        if (existingInvoice) {
+          const existingOrder = existingInvoice.orderId
+            ? await Order.findById(existingInvoice.orderId)
+            : null;
+          return res.status(200).json({
+            success: true,
+            message: 'This billing request was already completed.',
+            invoice: existingInvoice,
+            order: existingOrder,
+            deliveryStatus: existingInvoice.deliveryStatus || 'Skipped',
+            duplicate: true
+          });
+        }
+      } catch (lookupError) {
+        console.error('[BillingController] Duplicate billing lookup failed:', lookupError);
+      }
+    }
+    const statusCode = Number(error.statusCode) || 500;
+    if (statusCode >= 500) {
+      console.error('[BillingController] Billing transaction failed:', error);
+    }
+    res.status(statusCode).json({
+      success: false,
+      message: statusCode >= 500 ? 'Billing could not be completed. No changes were committed.' : error.message
+    });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 
@@ -346,9 +675,11 @@ const createBillingTransaction = async (req, res) => {
  * @access  Private (Staff, Admin, Owner)
  */
 const verifyQrPaymentAndBill = async (req, res) => {
-  req.body.paymentMethod = 'POS_UPI_QR';
-  req.body.paymentStatus = 'PAID';
-  return createBillingTransaction(req, res);
+  return res.status(503).json({
+    success: false,
+    code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+    message: 'QR payment cannot be completed until a payment provider is configured.'
+  });
 };
 
 /**
@@ -704,12 +1035,16 @@ const getInvoiceById = async (req, res) => {
 };
 
 /**
- * @desc    Edit/Update an existing Bill (Admin, Owner, or authorized Staff)
+ * @desc    Edit/Update an existing Bill (Admin or Owner)
  * @route   PUT /api/billing/invoice/:id
- * @access  Private (Admin, Owner, Staff with canEditBills)
+ * @access  Private (Admin, Owner)
  */
 const updateBill = async (req, res) => {
   try {
+    if (!['admin', 'owner'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Owner users can edit bills.' });
+    }
+
     const { id } = req.params;
     const { items, discountType = 'flat', discountValue = 0, customerName, customerPhone, customerEmail, paymentMethod, reason = 'Invoice correction' } = req.body;
 
@@ -718,15 +1053,12 @@ const updateBill = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invoice not found or deleted' });
     }
 
-    // Permission check for Staff
-    if (req.user.role === 'staff') {
-      const staff = await Staff.findOne({ userId: req.user._id });
-      if (!staff || !staff.canEditBills) {
-        return res.status(403).json({ success: false, message: 'Staff bill correction permission is not enabled by Admin.' });
-      }
-      if (invoice.staffId && invoice.staffId.toString() !== staff._id.toString()) {
-        return res.status(403).json({ success: false, message: 'You can only edit your own bills.' });
-      }
+    if (
+      req.user.role === 'admin' &&
+      req.user.shopId &&
+      invoice.shopId?.toString() !== req.user.shopId.toString()
+    ) {
+      return res.status(403).json({ success: false, message: 'Admins can only edit bills from their assigned shop.' });
     }
 
     // Save previous snapshot for audit trail
@@ -858,55 +1190,106 @@ const updateBill = async (req, res) => {
 };
 
 /**
- * @desc    Delete a Bill (Admin, Owner) - Restores Stock & Records Audit Log
+ * @desc    Permanently delete a Bill (Admin or Owner), restoring stock for active bills
  * @route   DELETE /api/billing/invoice/:id
  * @access  Private (Admin, Owner)
  */
 const deleteBill = async (req, res) => {
+  let session;
   try {
+    if (!['admin', 'owner'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'Only Admin or Owner users can delete bills.' });
+    }
+
     const { id } = req.params;
-    const { reason = 'Cancelled bill' } = req.body;
-
-    const invoice = await Invoice.findById(id);
-    if (!invoice || invoice.isDeleted) {
-      return res.status(404).json({ success: false, message: 'Invoice not found or already deleted' });
+    const rawReason = req.body?.reason;
+    if (rawReason !== undefined && typeof rawReason !== 'string') {
+      return res.status(400).json({ success: false, message: 'Deletion reason must be text.' });
+    }
+    const reason = rawReason === undefined ? 'Permanently deleted by Admin/Owner' : rawReason.trim();
+    if (!reason || reason.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: 'A deletion reason of 1 to 500 characters is required.'
+      });
     }
 
-    // Restore stock for all items in the invoice
-    for (const item of invoice.items) {
-      if (item.productId) {
-        await Product.findByIdAndUpdate(item.productId, { $inc: { availableQuantity: item.quantity } });
-        await Inventory.findOneAndUpdate(
-          { productId: item.productId },
-          {
-            $inc: { currentStock: item.quantity },
-            $push: {
-              stockLogs: {
-                type: 'RETURN',
-                quantity: item.quantity,
-                referenceId: invoice.invoiceNumber,
-                notes: `Bill cancelled: ${invoice.invoiceNumber}. Reason: ${reason}`,
-                performedBy: req.user._id
-              }
-            }
-          }
-        );
+    session = await Invoice.startSession();
+    let invoiceNumber;
+
+    await session.withTransaction(async () => {
+      const invoice = await Invoice.findById(id).session(session);
+      if (!invoice) {
+        const error = new Error('Invoice not found');
+        error.statusCode = 404;
+        throw error;
       }
-    }
 
-    invoice.isDeleted = true;
-    invoice.deletedBy = req.user._id;
-    invoice.deletedAt = new Date();
-    invoice.deleteReason = reason;
-    await invoice.save();
+      if (
+        req.user.role === 'admin' &&
+        req.user.shopId &&
+        invoice.shopId?.toString() !== req.user.shopId.toString()
+      ) {
+        const error = new Error('Admins can only delete bills from their assigned shop.');
+        error.statusCode = 403;
+        throw error;
+      }
 
-    if (invoice.orderId) {
-      await Order.findByIdAndUpdate(invoice.orderId, { orderStatus: 'CANCELLED', paymentStatus: 'REFUNDED' });
-    }
+      invoiceNumber = invoice.invoiceNumber;
 
-    res.status(200).json({ success: true, message: `Invoice #${invoice.invoiceNumber} deleted and stock restored successfully.` });
+      // Older soft-deleted bills already had their stock restored.
+      if (!invoice.isDeleted) {
+        for (const item of invoice.items) {
+          if (item.productId) {
+            await Product.findByIdAndUpdate(
+              item.productId,
+              { $inc: { availableQuantity: item.quantity } },
+              { session }
+            );
+            await Inventory.findOneAndUpdate(
+              { productId: item.productId },
+              {
+                $inc: { currentStock: item.quantity },
+                $push: {
+                  stockLogs: {
+                    type: 'RETURN',
+                    quantity: item.quantity,
+                    referenceId: invoice.invoiceNumber,
+                    notes: `Bill deleted: ${invoice.invoiceNumber}. Reason: ${reason}`,
+                    performedBy: req.user._id
+                  }
+                }
+              },
+              { session }
+            );
+          }
+        }
+
+        if (invoice.orderId) {
+          await Order.findByIdAndUpdate(
+            invoice.orderId,
+            { orderStatus: 'CANCELLED', paymentStatus: 'REFUNDED' },
+            { session }
+          );
+        }
+      }
+
+      const deletedInvoice = await Invoice.findByIdAndDelete(id, { session });
+      if (!deletedInvoice) {
+        const error = new Error('Invoice was already deleted');
+        error.statusCode = 404;
+        throw error;
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Invoice #${invoiceNumber} permanently deleted.`
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  } finally {
+    if (session) await session.endSession();
   }
 };
 
@@ -974,6 +1357,9 @@ const lookupCustomerByPhone = async (req, res) => {
 };
 
 module.exports = {
+  getBillingSettings,
+  getBillingPaymentQrs,
+  lookupProductPOS,
   searchProductPOS,
   createBillingTransaction,
   verifyQrPaymentAndBill,

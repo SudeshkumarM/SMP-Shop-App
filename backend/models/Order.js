@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
+  requestId: {
+    type: String,
+    trim: true,
+    maxlength: 128,
+    default: undefined
+  },
   orderNumber: {
     type: String,
     required: true,
@@ -131,6 +137,7 @@ const orderSchema = new mongoose.Schema({
 });
 
 orderSchema.index({ shopId: 1, orderNumber: 1 });
+orderSchema.index({ requestId: 1 }, { unique: true, sparse: true });
 orderSchema.index({ customerId: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ customerId: 1, createdAt: -1 });

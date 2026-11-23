@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import socket from '../../services/socket';
 import { useToast } from '../../context/ToastContext';
+import CategoryImagePicker from '../../components/common/CategoryImagePicker';
+
+const DEFAULT_CATEGORY_IMAGE = '/images/category-default.svg';
 
 const AdminCategories = () => {
   const [categories, setCategories] = useState([]);
@@ -17,7 +20,7 @@ const AdminCategories = () => {
     categoryId: '',
     name: '',
     description: '',
-    image: '',
+    image: DEFAULT_CATEGORY_IMAGE,
     status: 'ACTIVE'
   });
 
@@ -66,7 +69,7 @@ const AdminCategories = () => {
       categoryId: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
       name: '',
       description: '',
-      image: '',
+      image: DEFAULT_CATEGORY_IMAGE,
       status: 'ACTIVE'
     });
     setShowAddModal(true);
@@ -78,7 +81,7 @@ const AdminCategories = () => {
       categoryId: cat.categoryId || '',
       name: cat.name || '',
       description: cat.description || '',
-      image: cat.image || '',
+      image: cat.image || DEFAULT_CATEGORY_IMAGE,
       status: cat.status || (cat.isActive ? 'ACTIVE' : 'INACTIVE')
     });
   };
@@ -270,15 +273,16 @@ const AdminCategories = () => {
                             className="rounded-3 bg-secondary d-flex align-items-center justify-content-center text-primary fw-bold"
                             style={{ width: '38px', height: '38px', overflow: 'hidden' }}
                           >
-                            {cat.image ? (
-                              <img
-                                src={cat.image}
-                                alt={cat.name}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              />
-                            ) : (
-                              <i className="bi bi-tag-fill"></i>
-                            )}
+                            <img
+                              src={cat.image || DEFAULT_CATEGORY_IMAGE}
+                              alt={cat.name}
+                              loading="lazy"
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              onError={(event) => {
+                                event.currentTarget.onerror = null;
+                                event.currentTarget.src = DEFAULT_CATEGORY_IMAGE;
+                              }}
+                            />
                           </div>
                           <div>
                             <span className="fw-bold text-dark d-block">{cat.name}</span>
@@ -394,16 +398,10 @@ const AdminCategories = () => {
                     ></textarea>
                   </div>
 
-                  <div className="mb-3">
-                    <label className="form-label small fw-semibold text-dark">Cover Image URL (Optional)</label>
-                    <input
-                      type="url"
-                      className="form-control"
-                      value={formData.image}
-                      onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                      placeholder="https://..."
-                    />
-                  </div>
+                  <CategoryImagePicker
+                    image={formData.image}
+                    onChange={(image) => setFormData((previous) => ({ ...previous, image }))}
+                  />
 
                   <div className="mb-3">
                     <label className="form-label small fw-semibold text-dark">Status</label>

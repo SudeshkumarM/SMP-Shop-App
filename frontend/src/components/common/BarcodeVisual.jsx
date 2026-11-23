@@ -16,7 +16,7 @@ const BarcodeVisual = ({
     if (svgRef.current && value) {
       try {
         JsBarcode(svgRef.current, String(value), {
-          format: format || 'CODE128',
+          format: format === 'UPCA' ? 'UPC' : (format || 'CODE128'),
           width,
           height,
           displayValue,

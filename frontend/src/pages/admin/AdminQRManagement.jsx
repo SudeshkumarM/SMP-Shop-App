@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import socket from '../../services/socket';
 import { useToast } from '../../context/ToastContext';
@@ -18,6 +18,8 @@ const AdminQRManagement = ({ role = 'admin' }) => {
   const [viewQr, setViewQr] = useState(null);
   const [printQr, setPrintQr] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -26,6 +28,7 @@ const AdminQRManagement = ({ role = 'admin' }) => {
     targetId: '',
     targetName: '',
     qrData: '',
+    imageUrl: '',
     description: '',
     status: 'ACTIVE'
   });
@@ -36,7 +39,7 @@ const AdminQRManagement = ({ role = 'admin' }) => {
       const res = await api.get('/products/qr-codes/list', {
         params: {
           search: search.trim() || undefined,
-          qrType: typeFilter !== 'ALL' ? typeFilter : undefined
+          type: typeFilter !== 'ALL' ? typeFilter : undefined
         }
       });
       if (res.data?.success) {
@@ -75,6 +78,7 @@ const AdminQRManagement = ({ role = 'admin' }) => {
       targetId: '',
       targetName: '',
       qrData: '',
+      imageUrl: '',
       description: '',
       status: 'ACTIVE'
     });
@@ -89,9 +93,45 @@ const AdminQRManagement = ({ role = 'admin' }) => {
       targetId: q.targetId || '',
       targetName: q.targetName || '',
       qrData: q.qrData || '',
+      imageUrl: q.imageUrl || '',
       description: q.description || '',
       status: q.status || 'ACTIVE'
     });
+  };
+
+  const handleUploadImage = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      addToast('Choose a JPG, PNG, WEBP, or GIF image.', 'error');
+      event.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      addToast('QR images must be 5 MB or smaller.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const body = new FormData();
+    body.append('image', file);
+    setUploadingImage(true);
+    try {
+      const response = await api.post('/upload', body, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (!response.data?.success || !response.data.imageUrl) {
+        throw new Error(response.data?.message || 'Image upload did not return a saved URL.');
+      }
+      setFormData((current) => ({ ...current, imageUrl: response.data.imageUrl }));
+      addToast('QR image uploaded. Save the QR code to apply it.', 'success');
+    } catch (error) {
+      addToast(error.response?.data?.message || error.message || 'QR image upload failed.', 'error');
+    } finally {
+      setUploadingImage(false);
+      event.target.value = '';
+    }
   };
 
   const handleSaveQR = async (e) => {
@@ -111,7 +151,7 @@ const AdminQRManagement = ({ role = 'admin' }) => {
           fetchQRCodes();
         }
       } else {
-        const res = await api.post('/products/qr-codes', formData);
+        const res = await api.post('/products/qr-codes/generate', formData);
         if (res.data?.success) {
           addToast('New QR Code generated successfully', 'success');
           setShowAddModal(false);
@@ -264,11 +304,11 @@ const AdminQRManagement = ({ role = 'admin' }) => {
                     )}
 
                     <div className="text-center py-3">
-                      <QRCodeVisual
-                        value={q.qrData}
-                        size={130}
-                        includeDownload={false}
-                      />
+                      {q.imageUrl ? (
+                        <img src={q.imageUrl} alt={`${q.title} QR code`} style={{ width: 130, height: 130, objectFit: 'contain' }} />
+                      ) : (
+                        <QRCodeVisual value={q.qrData} size={130} includeDownload={false} />
+                      )}
                     </div>
 
                     <p className="small text-muted mb-2 font-monospace text-truncate" title={q.qrData}>
@@ -424,6 +464,33 @@ const AdminQRManagement = ({ role = 'admin' }) => {
                   </div>
 
                   <div className="mb-3">
+                    <label className="form-label small fw-semibold text-white">Existing QR Image (Optional)</label>
+                    <div className="d-flex align-items-center gap-3 mb-2">
+                      {formData.imageUrl && (
+                        <img src={formData.imageUrl} alt="Uploaded QR preview" style={{ width: 72, height: 72, objectFit: 'contain', background: '#fff' }} />
+                      )}
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="d-none"
+                        onChange={handleUploadImage}
+                      />
+                      <button type="button" className="btn btn-outline-info btn-sm" disabled={uploadingImage} onClick={() => imageInputRef.current?.click()}>
+                        {uploadingImage ? 'Uploading...' : 'Upload QR image'}
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={formData.imageUrl}
+                      onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                      placeholder="Or paste an HTTPS image URL"
+                    />
+                    <small className="text-muted">Optional for an existing payment QR; otherwise a QR image is generated from the payload.</small>
+                  </div>
+
+                  <div className="mb-3">
                     <label className="form-label small fw-semibold text-white">Description</label>
                     <input
                       type="text"
@@ -434,7 +501,7 @@ const AdminQRManagement = ({ role = 'admin' }) => {
                     />
                   </div>
 
-                  {formData.qrData && (
+                  {formData.qrData && !formData.imageUrl && (
                     <div className="text-center p-3 bg-secondary rounded-3 border border-secondary">
                       <small className="text-muted d-block mb-2">Live QR Preview:</small>
                       <QRCodeVisual value={formData.qrData} size={110} />
@@ -478,7 +545,11 @@ const AdminQRManagement = ({ role = 'admin' }) => {
               </p>
 
               <div className="p-3 bg-white rounded-3 d-inline-block shadow my-2">
-                <QRCodeVisual value={viewQr.qrData} size={220} />
+                {viewQr.imageUrl ? (
+                  <img src={viewQr.imageUrl} alt={`${viewQr.title} QR code`} style={{ width: 220, height: 220, objectFit: 'contain' }} />
+                ) : (
+                  <QRCodeVisual value={viewQr.qrData} size={220} />
+                )}
               </div>
 
               <div className="my-3 p-2 bg-secondary rounded font-monospace small text-info text-break">
@@ -536,7 +607,11 @@ const AdminQRManagement = ({ role = 'admin' }) => {
                   <h6 className="fw-bold mb-1 text-uppercase">SMP</h6>
                   <p className="small text-muted mb-2">{printQr.title}</p>
                   <div className="my-2">
-                    <QRCodeVisual value={printQr.qrData} size={160} />
+                    {printQr.imageUrl ? (
+                      <img src={printQr.imageUrl} alt={`${printQr.title} QR code`} style={{ width: 160, height: 160, objectFit: 'contain' }} />
+                    ) : (
+                      <QRCodeVisual value={printQr.qrData} size={160} />
+                    )}
                   </div>
                   <small className="fw-bold d-block text-truncate" style={{ maxWidth: '220px' }}>
                     {printQr.targetName || printQr.targetId || 'Scan with Camera / POS'}

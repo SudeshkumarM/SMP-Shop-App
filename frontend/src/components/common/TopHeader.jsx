@@ -13,7 +13,7 @@ const TopHeader = ({ title, subtitle, module, onToggleSidebar, sidebarOpen = fal
 
   return (
     <header
-      className="px-3 px-md-4 py-3 d-flex align-items-center justify-content-between gap-3 shadow-sm"
+      className="portal-header px-3 px-md-4 py-3 d-flex align-items-center justify-content-between gap-3 shadow-sm"
       style={{
         backgroundColor: 'var(--smp-deep-navy)',
         borderBottom: '1px solid #1E3A70',
