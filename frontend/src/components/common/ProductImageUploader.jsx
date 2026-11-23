@@ -1,28 +1,46 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
-const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
+const ProductImageUploader = ({
+  images = [],
+  onChange,
+  onUploadStateChange,
+  maxImages = 6
+}) => {
   const { addToast } = useToast();
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [selectedPreviews, setSelectedPreviews] = useState([]);
+  const previewUrlsRef = useRef([]);
   
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const replaceInputRef = useRef(null);
   const replaceIndexRef = useRef(null);
 
+  const clearSelectedPreviews = () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current = [];
+    setSelectedPreviews([]);
+  };
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
   const validateFile = (file) => {
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     if (!validTypes.includes(file.type)) {
-      addToast(`Invalid file type "${file.name}". Please upload JPEG, PNG, or WEBP images only.`, 'error');
+      setUploadError(`"${file.name}" is not a supported image. Choose PNG, JPG, JPEG, or WEBP.`);
       return false;
     }
-    const maxSizeBytes = 5 * 1024 * 1024; // 5 MB
+    const maxSizeBytes = 4 * 1024 * 1024;
     if (file.size > maxSizeBytes) {
-      addToast(`File "${file.name}" exceeds 5MB limit. Please select a smaller image.`, 'error');
+      setUploadError(`"${file.name}" exceeds the 4 MB upload limit. Choose a smaller image.`);
       return false;
     }
     return true;
@@ -32,43 +50,67 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
+    setUploadError('');
     if (images.length + files.length > maxImages) {
       addToast(`You can upload a maximum of ${maxImages} images per product.`, 'warning');
+      e.target.value = '';
       return;
     }
 
     const validFiles = files.filter(validateFile);
+    if (validFiles.length !== files.length) {
+      e.target.value = '';
+      return;
+    }
     if (validFiles.length === 0) return;
     const previewUrls = validFiles.map(file => URL.createObjectURL(file));
+    clearSelectedPreviews();
+    previewUrlsRef.current = previewUrls;
     setSelectedPreviews(previewUrls);
 
     setUploading(true);
+    onUploadStateChange?.(true);
+    setUploadProgress(0);
+    const uploadedUrls = [];
     try {
-      const formData = new FormData();
-      validFiles.forEach(file => {
-        formData.append('images', file);
-      });
+      const totalBytes = validFiles.reduce((total, file) => total + file.size, 0);
+      let completedBytes = 0;
 
-      const res = await api.post('/upload/multiple', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      for (const file of validFiles) {
+        const body = new FormData();
+        body.append('image', file);
+        const res = await api.post('/upload/product-image', body, {
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const uploadedBytes = completedBytes + event.loaded;
+            setUploadProgress(Math.min(99, Math.round((uploadedBytes / totalBytes) * 100)));
+          }
+        });
 
-      if (res.data.success && res.data.imageUrls) {
-        const updated = [...images, ...res.data.imageUrls];
-        onChange(updated);
-        addToast(`${res.data.imageUrls.length} image(s) uploaded successfully!`, 'success');
-        selectedPreviews.forEach(url => URL.revokeObjectURL(url));
-        setSelectedPreviews([]);
+        if (!res.data?.success || !res.data.imageUrl) {
+          throw new Error(res.data?.message || `Image storage did not return a URL for "${file.name}".`);
+        }
+
+        uploadedUrls.push(res.data.imageUrl);
+        completedBytes += file.size;
       }
+
+      onChange([...images, ...uploadedUrls]);
+      setUploadProgress(100);
+      clearSelectedPreviews();
+      addToast(`${uploadedUrls.length} image(s) uploaded successfully!`, 'success');
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Failed to upload images';
-      if (errorMsg.includes('not configured')) {
-        addToast('Image storage not configured. Using URL-only mode or contact admin.', 'warning');
-      } else {
-        addToast(errorMsg, 'error');
+      if (uploadedUrls.length > 0) {
+        onChange([...images, ...uploadedUrls]);
+        clearSelectedPreviews();
       }
+      const errorMsg = err.response?.data?.message || err.message || 'Image upload failed. Please try again.';
+      setUploadError(errorMsg);
+      addToast(errorMsg, 'error');
     } finally {
       setUploading(false);
+      onUploadStateChange?.(false);
+      setTimeout(() => setUploadProgress(0), 1200);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
@@ -79,32 +121,43 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
     const index = replaceIndexRef.current;
     if (!file || index === null || index === undefined) return;
 
-    if (!validateFile(file)) return;
+    setUploadError('');
+    if (!validateFile(file)) {
+      replaceIndexRef.current = null;
+      if (replaceInputRef.current) replaceInputRef.current.value = '';
+      return;
+    }
 
     setUploading(true);
+    onUploadStateChange?.(true);
+    setUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append('image', file);
 
-      const res = await api.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      const res = await api.post('/upload/product-image', formData, {
+        onUploadProgress: (event) => {
+          if (!event.total) return;
+          setUploadProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+        }
       });
 
-      if (res.data.success && res.data.imageUrl) {
-        const updated = [...images];
-        updated[index] = res.data.imageUrl;
-        onChange(updated);
-        addToast('Image replaced successfully!', 'success');
+      if (!res.data?.success || !res.data.imageUrl) {
+        throw new Error(res.data?.message || 'Image storage did not return a URL.');
       }
+      const updated = [...images];
+      updated[index] = res.data.imageUrl;
+      onChange(updated);
+      setUploadProgress(100);
+      addToast('Image replaced successfully!', 'success');
     } catch (err) {
-      const errorMsg = err.response?.data?.message || 'Failed to replace image';
-      if (errorMsg.includes('not configured')) {
-        addToast('Image storage not configured. Use URL-only mode.', 'warning');
-      } else {
-        addToast(errorMsg, 'error');
-      }
+      const errorMsg = err.response?.data?.message || err.message || 'Image replacement failed. Please try again.';
+      setUploadError(errorMsg);
+      addToast(errorMsg, 'error');
     } finally {
       setUploading(false);
+      onUploadStateChange?.(false);
+      setTimeout(() => setUploadProgress(0), 1200);
       replaceIndexRef.current = null;
       if (replaceInputRef.current) replaceInputRef.current.value = '';
     }
@@ -130,8 +183,16 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
     const clean = urlInput.trim();
     if (!clean) return;
 
-    if (!clean.startsWith('http://') && !clean.startsWith('https://') && !clean.startsWith('/uploads/')) {
-      addToast('Please enter a valid image URL starting with http://, https://, or /uploads/', 'error');
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(clean);
+    } catch {
+      addToast('Please enter a valid image URL starting with http:// or https://.', 'error');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      addToast('Please enter a complete image URL starting with http:// or https://.', 'error');
       return;
     }
 
@@ -141,6 +202,8 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
     }
 
     onChange([...images, clean]);
+    setUploadError('');
+    clearSelectedPreviews();
     setUrlInput('');
     setShowUrlInput(false);
     addToast('Image URL added', 'success');
@@ -155,7 +218,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
           type="file"
           ref={fileInputRef}
           multiple
-          accept="image/jpeg,image/jpg,image/png,image/webp"
+          accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
           className="d-none"
           onChange={handleFileUpload}
         />
@@ -170,7 +233,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
         <input
           type="file"
           ref={replaceInputRef}
-          accept="image/jpeg,image/jpg,image/png,image/webp"
+          accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
           className="d-none"
           onChange={handleReplaceUpload}
         />
@@ -182,7 +245,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
           className="btn btn-outline-primary btn-sm rounded-pill d-flex align-items-center gap-2"
           onClick={() => fileInputRef.current?.click()}
         >
-          <i className="bi bi-folder2-open"></i> Choose Files / Gallery
+          <i className="bi bi-folder2-open"></i> Choose Image / Upload
         </button>
 
         {/* Camera Capture Button */}
@@ -215,15 +278,16 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
         <div className="input-group input-group-sm mb-3">
           <input
             type="url"
-            placeholder="Paste image link (https://... or /uploads/...)"
+            placeholder="Paste a complete image URL (https://...)"
             className="form-control"
+            disabled={uploading}
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
           />
-          <button type="button" className="btn btn-primary" onClick={handleAddUrl}>
+          <button type="button" className="btn btn-primary" onClick={handleAddUrl} disabled={uploading}>
             Add Image
           </button>
-          <button type="button" className="btn btn-light" onClick={() => setShowUrlInput(false)}>
+          <button type="button" className="btn btn-light" onClick={() => setShowUrlInput(false)} disabled={uploading}>
             Cancel
           </button>
         </div>
@@ -233,7 +297,20 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
       {uploading && (
         <div className="d-flex align-items-center gap-2 p-2 mb-3 bg-light rounded text-primary small">
           <div className="spinner-border spinner-border-sm" role="status"></div>
-          <span>Uploading and optimizing image(s)... Please wait.</span>
+          <div className="flex-grow-1">
+            <div className="d-flex justify-content-between">
+              <span>Uploading image(s)...</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="progress mt-2" style={{ height: '6px' }}>
+              <div className="progress-bar progress-bar-striped progress-bar-animated" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {uploadError && (
+        <div className="alert alert-danger py-2 small" role="alert">
+          {uploadError}
         </div>
       )}
 
@@ -282,6 +359,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
                       title="Set as Primary"
                       className="btn btn-link btn-xs p-0 text-muted"
                       onClick={() => handleSetPrimary(idx)}
+                      disabled={uploading}
                     >
                       <i className="bi bi-star"></i>
                     </button>
@@ -293,6 +371,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
                     type="button"
                     title="Replace Image"
                     className="btn btn-link btn-xs p-0 text-primary"
+                    disabled={uploading}
                     onClick={() => {
                       replaceIndexRef.current = idx;
                       replaceInputRef.current?.click();
@@ -306,6 +385,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
                     title="Remove Image"
                     className="btn btn-link btn-xs p-0 text-danger"
                     onClick={() => handleRemoveImage(idx)}
+                    disabled={uploading}
                   >
                     <i className="bi bi-trash"></i>
                   </button>
@@ -319,7 +399,7 @@ const ProductImageUploader = ({ images = [], onChange, maxImages = 6 }) => {
           <i className="bi bi-images display-6 d-block mb-1 text-secondary"></i>
           <div>No images selected yet.</div>
           <div className="text-secondary small">
-            Upload from gallery, capture via camera, or attach image URL (Max 5MB: JPG, PNG, WEBP).
+            Upload from gallery, capture via camera, or attach an image URL (Max 4 MB per file: JPG, PNG, WEBP).
           </div>
         </div>
       )}

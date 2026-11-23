@@ -16,6 +16,7 @@ const cloudinaryConfigured = Boolean(
 const isVercel = Boolean(process.env.VERCEL);
 const useCloudinary = cloudinaryConfigured;
 const maxFileSize = 5 * 1024 * 1024;
+const maxProductImageSize = 4 * 1024 * 1024;
 const uploadDir = path.resolve(__dirname, '..', 'uploads');
 
 if (useCloudinary) {
@@ -28,6 +29,12 @@ if (useCloudinary) {
 
 const allowedMimeTypes = {
   '.gif': ['image/gif'],
+  '.jpeg': ['image/jpeg', 'image/jpg'],
+  '.jpg': ['image/jpeg', 'image/jpg'],
+  '.png': ['image/png'],
+  '.webp': ['image/webp']
+};
+const productImageMimeTypes = {
   '.jpeg': ['image/jpeg', 'image/jpg'],
   '.jpg': ['image/jpeg', 'image/jpg'],
   '.png': ['image/png'],
@@ -48,6 +55,18 @@ const fileFilter = (req, file, callback) => {
   callback(new UploadValidationError('Only JPEG, JPG, PNG, WEBP, and GIF image files are permitted.'));
 };
 
+const productFileFilter = (req, file, callback) => {
+  const extension = path.extname(file.originalname).toLowerCase();
+  const acceptedMimeTypes = productImageMimeTypes[extension];
+
+  if (acceptedMimeTypes && acceptedMimeTypes.includes(file.mimetype.toLowerCase())) {
+    callback(null, true);
+    return;
+  }
+
+  callback(new UploadValidationError('Only JPEG, JPG, PNG, and WEBP product images are permitted.'));
+};
+
 const localStorage = multer.diskStorage({
   destination: (req, file, callback) => {
     fs.mkdir(uploadDir, { recursive: true }, (error) => {
@@ -64,6 +83,12 @@ const upload = multer({
   storage: isVercel || useCloudinary ? multer.memoryStorage() : localStorage,
   limits: { fileSize: maxFileSize, files: 8 },
   fileFilter
+});
+
+const productImageUpload = multer({
+  storage: isVercel || useCloudinary ? multer.memoryStorage() : localStorage,
+  limits: { fileSize: maxProductImageSize, files: 1 },
+  fileFilter: productFileFilter
 });
 
 const uploadToCloudinary = (file) => new Promise((resolve, reject) => {
@@ -133,11 +158,11 @@ const storeMultipleFiles = async (files) => {
   }
 };
 
-const sendUploadError = (error, res, next) => {
+const sendUploadError = (error, res, next, fileSizeLimit) => {
   if (error instanceof multer.MulterError) {
     const isSizeError = error.code === 'LIMIT_FILE_SIZE';
     const message = isSizeError
-      ? 'Each image must be 5 MB or smaller.'
+      ? `Each image must be ${fileSizeLimit / (1024 * 1024)} MB or smaller.`
       : error.code === 'LIMIT_FILE_COUNT'
         ? 'You can upload a maximum of 8 images at a time.'
         : error.message;
@@ -149,7 +174,10 @@ const sendUploadError = (error, res, next) => {
   }
 
   if (useCloudinary) {
-    console.error('[Upload] Cloudinary image upload failed:', error.message);
+    console.error('[Upload] Cloudinary image upload failed:', {
+      errorName: error.name,
+      errorCode: error.http_code || error.code
+    });
     return res.status(502).json({
       success: false,
       message: 'Image storage is temporarily unavailable. Please try again.'
@@ -159,15 +187,15 @@ const sendUploadError = (error, res, next) => {
   return next(error);
 };
 
-const runUpload = (middleware, handler) => (req, res, next) => {
+const runUpload = (middleware, handler, fileSizeLimit = maxFileSize) => (req, res, next) => {
   middleware(req, res, (error) => {
     if (error) {
-      sendUploadError(error, res, next);
+      sendUploadError(error, res, next, fileSizeLimit);
       return;
     }
 
     Promise.resolve(handler(req, res)).catch((uploadError) => {
-      sendUploadError(uploadError, res, next);
+      sendUploadError(uploadError, res, next, fileSizeLimit);
     });
   });
 };
@@ -176,13 +204,13 @@ const requireCloudinaryConfig = (req, res, next) => {
   if (isVercel && !cloudinaryConfigured) {
     return res.status(503).json({
       success: false,
-      message: 'Permanent image storage is not configured for Vercel. Configure Cloudinary environment variables.'
+      message: 'Permanent image storage is not configured for Vercel. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in the Vercel project environment.'
     });
   }
   return next();
 };
 
-router.post('/', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.single('image'), async (req, res) => {
+const handleSingleUpload = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Please upload an image file' });
   }
@@ -194,7 +222,17 @@ router.post('/', protect, authorize('admin', 'owner'), requireCloudinaryConfig, 
     imageUrl: storedFile.url,
     filename: storedFile.filename
   });
-}));
+};
+
+router.post('/', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.single('image'), handleSingleUpload));
+
+router.post(
+  '/product-image',
+  protect,
+  authorize('admin', 'owner'),
+  requireCloudinaryConfig,
+  runUpload(productImageUpload.single('image'), handleSingleUpload, maxProductImageSize)
+);
 
 router.post('/multiple', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.array('images', 8), async (req, res) => {
   if (!req.files || req.files.length === 0) {

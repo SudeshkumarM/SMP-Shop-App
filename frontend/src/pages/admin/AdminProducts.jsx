@@ -18,6 +18,7 @@ const AdminProducts = () => {
   const [editingProduct, setEditingProduct] = useState(null);
   const [importing, setImporting] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
+  const [uploadingProductImage, setUploadingProductImage] = useState(false);
 
   const initialNewProd = {
     name: '',
@@ -423,7 +424,7 @@ const AdminProducts = () => {
                 <h5 className="modal-title fw-bold text-dark">
                   <i className="bi bi-box-seam text-primary me-2"></i>Add New Product
                 </h5>
-                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
+                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)} disabled={uploadingProductImage}></button>
               </div>
               <form onSubmit={handleCreateProduct}>
                 <div className="modal-body p-4">
@@ -575,6 +576,7 @@ const AdminProducts = () => {
                       <ProductImageUploader
                         images={newProd.images}
                         onChange={(imgs) => setNewProd({ ...newProd, images: imgs })}
+                        onUploadStateChange={setUploadingProductImage}
                       />
                     </div>
 
@@ -593,12 +595,12 @@ const AdminProducts = () => {
                 </div>
 
                 <div className="modal-footer border-top bg-light">
-                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setShowAddModal(false)}>
+                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setShowAddModal(false)} disabled={uploadingProductImage}>
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={categories.length === 0 || savingProduct}
+                    disabled={categories.length === 0 || savingProduct || uploadingProductImage}
                     className="btn btn-primary rounded-pill px-4 fw-semibold"
                   >
                     {savingProduct ? 'Saving Product...' : 'Save Product'}
@@ -619,7 +621,7 @@ const AdminProducts = () => {
                 <h5 className="modal-title fw-bold text-dark">
                   <i className="bi bi-pencil-square text-primary me-2"></i>Edit Product ({editingProduct.sku})
                 </h5>
-                <button type="button" className="btn-close" onClick={() => setEditingProduct(null)}></button>
+                <button type="button" className="btn-close" onClick={() => setEditingProduct(null)} disabled={uploadingProductImage}></button>
               </div>
               <form onSubmit={handleUpdateProduct}>
                 <div className="modal-body p-4">
@@ -739,6 +741,7 @@ const AdminProducts = () => {
                       <ProductImageUploader
                         images={editingProduct.images || []}
                         onChange={(imgs) => setEditingProduct({ ...editingProduct, images: imgs })}
+                        onUploadStateChange={setUploadingProductImage}
                       />
                     </div>
 
@@ -755,10 +758,10 @@ const AdminProducts = () => {
                 </div>
 
                 <div className="modal-footer border-top bg-light">
-                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setEditingProduct(null)}>
+                  <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setEditingProduct(null)} disabled={uploadingProductImage}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn btn-primary rounded-pill px-4 fw-semibold">
+                  <button type="submit" className="btn btn-primary rounded-pill px-4 fw-semibold" disabled={uploadingProductImage}>
                     Save Changes
                   </button>
                 </div>
