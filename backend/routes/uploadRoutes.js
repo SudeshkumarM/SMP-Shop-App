@@ -41,7 +41,12 @@ const productImageMimeTypes = {
   '.webp': ['image/webp']
 };
 
-class UploadValidationError extends Error {}
+class UploadValidationError extends Error {
+  constructor(message, uploadDetails = {}) {
+    super(message);
+    this.uploadDetails = uploadDetails;
+  }
+}
 
 const fileFilter = (req, file, callback) => {
   const extension = path.extname(file.originalname).toLowerCase();
@@ -64,7 +69,14 @@ const productFileFilter = (req, file, callback) => {
     return;
   }
 
-  callback(new UploadValidationError('Only JPEG, JPG, PNG, and WEBP product images are permitted.'));
+  callback(new UploadValidationError(
+    'Only JPEG, JPG, PNG, and WEBP product images are permitted.',
+    {
+      fieldName: file.fieldname,
+      mimeType: file.mimetype,
+      fileSizeBytes: null
+    }
+  ));
 };
 
 const localStorage = multer.diskStorage({
@@ -165,6 +177,8 @@ const sendUploadError = (error, res, next, fileSizeLimit) => {
       ? `Each image must be ${fileSizeLimit / (1024 * 1024)} MB or smaller.`
       : error.code === 'LIMIT_FILE_COUNT'
         ? 'You can upload a maximum of 8 images at a time.'
+        : error.code === 'LIMIT_UNEXPECTED_FILE'
+          ? `Unexpected file field "${error.field || 'unknown'}". Check that the upload field is named "image".`
         : error.message;
     return res.status(isSizeError ? 413 : 400).json({ success: false, message });
   }
@@ -187,11 +201,31 @@ const sendUploadError = (error, res, next, fileSizeLimit) => {
   return next(error);
 };
 
-const runUpload = (middleware, handler, fileSizeLimit = maxFileSize) => (req, res, next) => {
+const logProductImageDiagnostics = (req, details = {}) => {
+  const file = req.file;
+  console.info('[Upload] Product image request', {
+    expectedFieldName: 'image',
+    fieldName: details.fieldName ?? file?.fieldname ?? null,
+    mimeType: details.mimeType ?? file?.mimetype ?? null,
+    fileSizeBytes: Number.isFinite(file?.size) ? file.size : (details.fileSizeBytes ?? null),
+    reqFileExists: Boolean(file)
+  });
+};
+
+const runUpload = (middleware, handler, fileSizeLimit = maxFileSize, productImageDiagnostics = false) => (req, res, next) => {
   middleware(req, res, (error) => {
     if (error) {
+      if (productImageDiagnostics) {
+        logProductImageDiagnostics(req, error.uploadDetails || {
+          fieldName: error.field || null
+        });
+      }
       sendUploadError(error, res, next, fileSizeLimit);
       return;
+    }
+
+    if (productImageDiagnostics) {
+      logProductImageDiagnostics(req);
     }
 
     Promise.resolve(handler(req, res)).catch((uploadError) => {
@@ -212,7 +246,10 @@ const requireCloudinaryConfig = (req, res, next) => {
 
 const handleSingleUpload = async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ success: false, message: 'Please upload an image file' });
+    return res.status(400).json({
+      success: false,
+      message: "No image file was received in multipart field 'image'."
+    });
   }
 
   const storedFile = await storeFile(req.file);
@@ -231,7 +268,7 @@ router.post(
   protect,
   authorize('admin', 'owner'),
   requireCloudinaryConfig,
-  runUpload(productImageUpload.single('image'), handleSingleUpload, maxProductImageSize)
+  runUpload(productImageUpload.single('image'), handleSingleUpload, maxProductImageSize, true)
 );
 
 router.post('/multiple', protect, authorize('admin', 'owner'), requireCloudinaryConfig, runUpload(upload.array('images', 8), async (req, res) => {

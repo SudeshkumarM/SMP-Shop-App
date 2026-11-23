@@ -14,6 +14,8 @@ const ProductImageUploader = ({
   const [uploadError, setUploadError] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [pendingReplaceIndex, setPendingReplaceIndex] = useState(null);
   const [selectedPreviews, setSelectedPreviews] = useState([]);
   const previewUrlsRef = useRef([]);
   
@@ -46,7 +48,7 @@ const ProductImageUploader = ({
     return true;
   };
 
-  const handleFileUpload = async (e) => {
+  const handleFileSelection = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
@@ -57,26 +59,67 @@ const ProductImageUploader = ({
       return;
     }
 
-    const validFiles = files.filter(validateFile);
-    if (validFiles.length !== files.length) {
+    if (!files.every(validateFile)) {
       e.target.value = '';
       return;
     }
-    if (validFiles.length === 0) return;
-    const previewUrls = validFiles.map(file => URL.createObjectURL(file));
+
     clearSelectedPreviews();
+    const previewUrls = files.map(file => URL.createObjectURL(file));
     previewUrlsRef.current = previewUrls;
     setSelectedPreviews(previewUrls);
+    setSelectedFiles(files);
+    setPendingReplaceIndex(null);
+    onUploadStateChange?.(true);
+    e.target.value = '';
+  };
 
+  const handleReplaceSelection = (e) => {
+    const file = e.target.files?.[0];
+    const index = replaceIndexRef.current;
+    if (!file || index === null || index === undefined) return;
+
+    setUploadError('');
+    if (!validateFile(file)) {
+      replaceIndexRef.current = null;
+      e.target.value = '';
+      return;
+    }
+
+    clearSelectedPreviews();
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlsRef.current = [previewUrl];
+    setSelectedPreviews([previewUrl]);
+    setSelectedFiles([file]);
+    setPendingReplaceIndex(index);
+    replaceIndexRef.current = null;
+    onUploadStateChange?.(true);
+    e.target.value = '';
+  };
+
+  const clearPendingSelection = () => {
+    clearSelectedPreviews();
+    setSelectedFiles([]);
+    setPendingReplaceIndex(null);
+    replaceIndexRef.current = null;
+    onUploadStateChange?.(false);
+  };
+
+  const uploadSelectedFiles = async () => {
+    if (selectedFiles.length === 0) return;
+
+    const filesToUpload = selectedFiles;
+    const replaceIndex = pendingReplaceIndex;
     setUploading(true);
     onUploadStateChange?.(true);
     setUploadProgress(0);
     const uploadedUrls = [];
+    let uploadCompleted = false;
     try {
-      const totalBytes = validFiles.reduce((total, file) => total + file.size, 0);
+      const totalBytes = filesToUpload.reduce((total, file) => total + file.size, 0);
       let completedBytes = 0;
 
-      for (const file of validFiles) {
+      for (const file of filesToUpload) {
         const body = new FormData();
         body.append('image', file);
         const res = await api.post('/upload/product-image', body, {
@@ -95,71 +138,36 @@ const ProductImageUploader = ({
         completedBytes += file.size;
       }
 
-      onChange([...images, ...uploadedUrls]);
-      setUploadProgress(100);
-      clearSelectedPreviews();
-      addToast(`${uploadedUrls.length} image(s) uploaded successfully!`, 'success');
-    } catch (err) {
-      if (uploadedUrls.length > 0) {
+      if (replaceIndex !== null) {
+        const updated = [...images];
+        updated[replaceIndex] = uploadedUrls[0];
+        onChange(updated);
+      } else {
         onChange([...images, ...uploadedUrls]);
-        clearSelectedPreviews();
+      }
+      setUploadProgress(100);
+      clearPendingSelection();
+      uploadCompleted = true;
+      addToast(
+        replaceIndex !== null ? 'Image replaced successfully!' : `${uploadedUrls.length} image(s) uploaded successfully!`,
+        'success'
+      );
+    } catch (err) {
+      if (uploadedUrls.length > 0 && replaceIndex === null) {
+        onChange([...images, ...uploadedUrls]);
+        clearPendingSelection();
       }
       const errorMsg = err.response?.data?.message || err.message || 'Image upload failed. Please try again.';
       setUploadError(errorMsg);
       addToast(errorMsg, 'error');
     } finally {
       setUploading(false);
-      onUploadStateChange?.(false);
+      onUploadStateChange?.(!uploadCompleted && uploadedUrls.length === 0 && selectedFiles.length > 0);
       setTimeout(() => setUploadProgress(0), 1200);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (cameraInputRef.current) cameraInputRef.current.value = '';
-    }
-  };
-
-  const handleReplaceUpload = async (e) => {
-    const file = e.target.files?.[0];
-    const index = replaceIndexRef.current;
-    if (!file || index === null || index === undefined) return;
-
-    setUploadError('');
-    if (!validateFile(file)) {
-      replaceIndexRef.current = null;
-      if (replaceInputRef.current) replaceInputRef.current.value = '';
-      return;
-    }
-
-    setUploading(true);
-    onUploadStateChange?.(true);
-    setUploadProgress(0);
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const res = await api.post('/upload/product-image', formData, {
-        onUploadProgress: (event) => {
-          if (!event.total) return;
-          setUploadProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
-        }
-      });
-
-      if (!res.data?.success || !res.data.imageUrl) {
-        throw new Error(res.data?.message || 'Image storage did not return a URL.');
+      if (uploadCompleted) {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        if (cameraInputRef.current) cameraInputRef.current.value = '';
       }
-      const updated = [...images];
-      updated[index] = res.data.imageUrl;
-      onChange(updated);
-      setUploadProgress(100);
-      addToast('Image replaced successfully!', 'success');
-    } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Image replacement failed. Please try again.';
-      setUploadError(errorMsg);
-      addToast(errorMsg, 'error');
-    } finally {
-      setUploading(false);
-      onUploadStateChange?.(false);
-      setTimeout(() => setUploadProgress(0), 1200);
-      replaceIndexRef.current = null;
-      if (replaceInputRef.current) replaceInputRef.current.value = '';
     }
   };
 
@@ -203,11 +211,16 @@ const ProductImageUploader = ({
 
     onChange([...images, clean]);
     setUploadError('');
-    clearSelectedPreviews();
     setUrlInput('');
     setShowUrlInput(false);
     addToast('Image URL added', 'success');
   };
+
+  const formatFileSize = (size) => (
+    size >= 1024 * 1024
+      ? `${(size / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(size / 1024))} KB`
+  );
 
   return (
     <div className="product-image-uploader mb-3">
@@ -220,28 +233,28 @@ const ProductImageUploader = ({
           multiple
           accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
           className="d-none"
-          onChange={handleFileUpload}
+          onChange={handleFileSelection}
         />
         <input
           type="file"
           ref={cameraInputRef}
-          accept="image/*"
+          accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
           capture="environment"
           className="d-none"
-          onChange={handleFileUpload}
+          onChange={handleFileSelection}
         />
         <input
           type="file"
           ref={replaceInputRef}
           accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
           className="d-none"
-          onChange={handleReplaceUpload}
+          onChange={handleReplaceSelection}
         />
 
         {/* Gallery / Computer Files Button */}
         <button
           type="button"
-          disabled={uploading || images.length >= maxImages}
+          disabled={uploading || selectedFiles.length > 0 || images.length >= maxImages}
           className="btn btn-outline-primary btn-sm rounded-pill d-flex align-items-center gap-2"
           onClick={() => fileInputRef.current?.click()}
         >
@@ -251,7 +264,7 @@ const ProductImageUploader = ({
         {/* Camera Capture Button */}
         <button
           type="button"
-          disabled={uploading || images.length >= maxImages}
+          disabled={uploading || selectedFiles.length > 0 || images.length >= maxImages}
           className="btn btn-outline-secondary btn-sm rounded-pill d-flex align-items-center gap-2"
           onClick={() => cameraInputRef.current?.click()}
         >
@@ -261,7 +274,7 @@ const ProductImageUploader = ({
         {/* Web Image URL Button */}
         <button
           type="button"
-          disabled={uploading || images.length >= maxImages}
+          disabled={uploading || selectedFiles.length > 0 || images.length >= maxImages}
           className="btn btn-outline-dark btn-sm rounded-pill d-flex align-items-center gap-2"
           onClick={() => setShowUrlInput(!showUrlInput)}
         >
@@ -284,12 +297,40 @@ const ProductImageUploader = ({
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
           />
-          <button type="button" className="btn btn-primary" onClick={handleAddUrl} disabled={uploading}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleAddUrl}
+            disabled={uploading || selectedFiles.length > 0}
+          >
             Add Image
           </button>
           <button type="button" className="btn btn-light" onClick={() => setShowUrlInput(false)} disabled={uploading}>
             Cancel
           </button>
+        </div>
+      )}
+
+      {selectedFiles.length > 0 && (
+        <div className="alert alert-info py-2 small d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <div>
+            <strong>{pendingReplaceIndex !== null ? 'Replacement selected:' : 'Ready to upload:'}</strong>
+            <ul className="mb-0 mt-1 ps-3">
+              {selectedFiles.map((file, index) => (
+                <li key={`${file.name}-${file.lastModified}-${index}`}>
+                  {file.name} ({formatFileSize(file.size)})
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="d-flex gap-2">
+            <button type="button" className="btn btn-primary btn-sm" onClick={uploadSelectedFiles} disabled={uploading}>
+              Upload {pendingReplaceIndex !== null ? 'Replacement' : 'Selected Image(s)'}
+            </button>
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={clearPendingSelection} disabled={uploading}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -359,7 +400,7 @@ const ProductImageUploader = ({
                       title="Set as Primary"
                       className="btn btn-link btn-xs p-0 text-muted"
                       onClick={() => handleSetPrimary(idx)}
-                      disabled={uploading}
+                      disabled={uploading || selectedFiles.length > 0}
                     >
                       <i className="bi bi-star"></i>
                     </button>
@@ -371,7 +412,7 @@ const ProductImageUploader = ({
                     type="button"
                     title="Replace Image"
                     className="btn btn-link btn-xs p-0 text-primary"
-                    disabled={uploading}
+                    disabled={uploading || selectedFiles.length > 0}
                     onClick={() => {
                       replaceIndexRef.current = idx;
                       replaceInputRef.current?.click();
@@ -385,7 +426,7 @@ const ProductImageUploader = ({
                     title="Remove Image"
                     className="btn btn-link btn-xs p-0 text-danger"
                     onClick={() => handleRemoveImage(idx)}
-                    disabled={uploading}
+                    disabled={uploading || selectedFiles.length > 0}
                   >
                     <i className="bi bi-trash"></i>
                   </button>
